@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0
+## 0.3.0
 
 * **Performance Optimization**: PDF saving now runs on background threads (Android & iOS) to prevent UI blocking.
 * **Adaptive UI**: Toolbar icons are now platform-adaptive, providing a native look and feel on both iOS and Android.
