@@ -27,7 +27,7 @@ class IOSPdfViewFactory: NSObject, FlutterPlatformViewFactory {
     }
 }
 
-class IOSPdfView: NSObject, FlutterPlatformView {
+class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
     private var _view: UIView
     private var pdfView: PDFView
     private var methodChannel: FlutterMethodChannel
@@ -35,6 +35,10 @@ class IOSPdfView: NSObject, FlutterPlatformView {
 
     private var currentPath: UIBezierPath?
     private var currentAnnotation: PDFAnnotation?
+    
+    private var drawColor: UIColor = .red
+    private var highlightColor: UIColor = UIColor.yellow.withAlphaComponent(0.5)
+    private var underlineColor: UIColor = .blue
 
     init(
         frame: CGRect,
@@ -64,6 +68,7 @@ class IOSPdfView: NSObject, FlutterPlatformView {
         methodChannel.setMethodCallHandler(handle)
         
         setupGestureRecognizers()
+        setupMenuController()
     }
 
     func view() -> UIView {
@@ -96,6 +101,38 @@ class IOSPdfView: NSObject, FlutterPlatformView {
             } else {
                 result(FlutterError(code: "SAVE_ERROR", message: "Could not save PDF", details: nil))
             }
+        case "addTextAnnotation":
+            if let args = call.arguments as? [String: Any],
+               let text = args["text"] as? String,
+               let x = args["x"] as? Double,
+               let y = args["y"] as? Double {
+                let colorInt = args["color"] as? Int
+                addTextAnnotation(text: text, at: CGPoint(x: x, y: y), color: colorInt != nil ? UIColor(argb: colorInt!) : nil)
+                result(nil)
+            } else {
+                result(FlutterError(code: "INVALID_ARGUMENTS", message: "Text, x, and y are required", details: nil))
+            }
+        case "jumpToPage":
+            if let args = call.arguments as? [String: Any],
+               let pageIndex = args["page"] as? Int,
+               let document = pdfView.document,
+               pageIndex < document.pageCount {
+                if let page = document.page(at: pageIndex) {
+                    pdfView.go(to: page)
+                }
+                result(nil)
+            } else {
+                result(FlutterError(code: "INVALID_PAGE", message: "Invalid page index", details: nil))
+            }
+        case "getTotalPages":
+            result(pdfView.document?.pageCount ?? 0)
+        case "updateConfig":
+            if let args = call.arguments as? [String: Any] {
+                if let draw = args["drawColor"] as? Int { drawColor = UIColor(argb: draw) }
+                if let highlight = args["highlightColor"] as? Int { highlightColor = UIColor(argb: highlight) }
+                if let underline = args["underlineColor"] as? Int { underlineColor = UIColor(argb: underline) }
+                result(nil)
+            }
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -103,10 +140,18 @@ class IOSPdfView: NSObject, FlutterPlatformView {
 
     private func setupGestureRecognizers() {
         let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        panGesture.delegate = self
         pdfView.addGestureRecognizer(panGesture)
         
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         pdfView.addGestureRecognizer(tapGesture)
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        if currentTool == "draw" {
+            return false // Don't scroll while drawing
+        }
+        return true
     }
 
     @objc func handlePan(_ gesture: UIPanGestureRecognizer) {
@@ -122,7 +167,7 @@ class IOSPdfView: NSObject, FlutterPlatformView {
             currentPath?.move(to: pagePoint)
             
             let annotation = PDFAnnotation(bounds: page.bounds(for: .mediaBox), forType: .ink, withProperties: nil)
-            annotation.color = .red
+            annotation.color = drawColor
             annotation.border = PDFBorder()
             annotation.border?.lineWidth = 3
             currentAnnotation = annotation
@@ -144,27 +189,64 @@ class IOSPdfView: NSObject, FlutterPlatformView {
     }
 
     @objc func handleTap(_ gesture: UITapGestureRecognizer) {
+        let location = gesture.location(in: pdfView)
+        
+        if currentTool == "text" {
+            // Report tap to Flutter for text input
+            methodChannel.invokeMethod("onPdfTapped", arguments: ["x": location.x, "y": location.y])
+            return
+        }
+        
         guard currentTool == "highlight" || currentTool == "underline" else { return }
         
-        let location = gesture.location(in: pdfView)
         guard let page = pdfView.page(for: location, nearest: true) else { return }
         let pagePoint = pdfView.convert(location, to: page)
         
         // Try to find text selection at point
-        if let selection = page.selection(at: pagePoint) {
+        if let selection = page.selectionForLine(at: pagePoint) {
             let annotationType: PDFAnnotationSubtype = currentTool == "highlight" ? .highlight : .underline
             let annotation = PDFAnnotation(bounds: selection.bounds(for: page), forType: annotationType, withProperties: nil)
-            annotation.color = currentTool == "highlight" ? .yellow.withAlphaComponent(0.5) : .blue
-            
-            // Add quadrilateral points for better text alignment
-            let lineSelections = selection.selectionsByLine()
-            for lineSelection in lineSelections {
-                // In a more advanced version, we'd add quadrilaterals here. 
-                // PDFAnnotation for highlight automatically handles the selection bounds well.
-            }
+            annotation.color = currentTool == "highlight" ? highlightColor : underlineColor
             
             page.addAnnotation(annotation)
         }
+    }
+
+    private func setupMenuController() {
+        let highlightItem = UIMenuItem(title: "Highlight", action: #selector(menuHighlight(_:)))
+        let underlineItem = UIMenuItem(title: "Underline", action: #selector(menuUnderline(_:)))
+        UIMenuController.shared.menuItems = [highlightItem, underlineItem]
+    }
+
+    @objc func menuHighlight(_ sender: Any) {
+        if let selection = pdfView.currentSelection, let page = selection.pages.first {
+            let annotation = PDFAnnotation(bounds: selection.bounds(for: page), forType: .highlight, withProperties: nil)
+            annotation.color = highlightColor
+            page.addAnnotation(annotation)
+        }
+    }
+
+    @objc func menuUnderline(_ sender: Any) {
+        if let selection = pdfView.currentSelection, let page = selection.pages.first {
+            let annotation = PDFAnnotation(bounds: selection.bounds(for: page), forType: .underline, withProperties: nil)
+            annotation.color = underlineColor
+            page.addAnnotation(annotation)
+        }
+    }
+
+    private func addTextAnnotation(text: String, at point: CGPoint, color: UIColor?) {
+        // Convert screen point to page coordinates
+        guard let page = pdfView.page(for: point, nearest: true) else { return }
+        let pagePoint = pdfView.convert(point, to: page)
+        
+        let bounds = CGRect(x: pagePoint.x, y: pagePoint.y, width: 200, height: 50)
+        let annotation = PDFAnnotation(bounds: bounds, forType: .freeText, withProperties: nil)
+        annotation.contents = text
+        annotation.font = UIFont.systemFont(ofSize: 14)
+        annotation.fontColor = color ?? .black
+        annotation.color = .clear
+        
+        page.addAnnotation(annotation)
     }
 
     private func clearAnnotations() {
@@ -177,5 +259,16 @@ class IOSPdfView: NSObject, FlutterPlatformView {
                 }
             }
         }
+    }
+}
+
+extension UIColor {
+    convenience init(argb: Int) {
+        self.init(
+            red: CGFloat((argb >> 16) & 0xFF) / 255.0,
+            green: CGFloat((argb >> 8) & 0xFF) / 255.0,
+            blue: CGFloat(argb & 0xFF) / 255.0,
+            alpha: CGFloat((argb >> 24) & 0xFF) / 255.0
+        )
     }
 }

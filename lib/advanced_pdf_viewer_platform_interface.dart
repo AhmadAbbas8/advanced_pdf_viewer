@@ -38,4 +38,16 @@ abstract class AdvancedPdfViewerPlatform extends PlatformInterface {
   Future<List<int>?> savePdf() {
     throw UnimplementedError('savePdf() has not been implemented.');
   }
+
+  Future<void> addTextAnnotation(String text, double x, double y) {
+    throw UnimplementedError('addTextAnnotation() has not been implemented.');
+  }
+
+  Future<void> jumpToPage(int page) {
+    throw UnimplementedError('jumpToPage() has not been implemented.');
+  }
+
+  Future<int> getTotalPages() {
+    throw UnimplementedError('getTotalPages() has not been implemented.');
+  }
 }

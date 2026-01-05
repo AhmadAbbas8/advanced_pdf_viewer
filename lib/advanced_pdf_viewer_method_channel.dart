@@ -32,4 +32,24 @@ class MethodChannelAdvancedPdfViewer extends AdvancedPdfViewerPlatform {
     final pdfData = await methodChannel.invokeMethod<Uint8List>('savePdf');
     return pdfData;
   }
+
+  @override
+  Future<void> addTextAnnotation(String text, double x, double y) async {
+    await methodChannel.invokeMethod('addTextAnnotation', {
+      'text': text,
+      'x': x,
+      'y': y,
+    });
+  }
+
+  @override
+  Future<void> jumpToPage(int page) async {
+    await methodChannel.invokeMethod('jumpToPage', {'page': page});
+  }
+
+  @override
+  Future<int> getTotalPages() async {
+    final int? count = await methodChannel.invokeMethod<int>('getTotalPages');
+    return count ?? 0;
+  }
 }

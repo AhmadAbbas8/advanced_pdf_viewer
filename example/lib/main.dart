@@ -1,10 +1,20 @@
+import 'dart:developer';
+
 import 'package:flutter/material.dart';
 import 'package:advanced_pdf_viewer/advanced_pdf_viewer.dart';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 void main() {
-  runApp(const MaterialApp(home: MyApp()));
+  runApp(
+    MaterialApp(
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+      ),
+      home: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatefulWidget {
@@ -23,7 +33,7 @@ class _MyAppState extends State<MyApp> {
     setState(() {
       _bytes = null;
       _url =
-          'https://pdftron.s3.amazonaws.com/downloads/pl/PDFTRON_mobile_about.pdf';
+          'https://easy.easy-stream.net/pdfs/5bbc9de8-2085-4874-bdb1-005533269a5c.pdf';
     });
   }
 
@@ -55,26 +65,62 @@ class _MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Advanced PDF Viewer'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.cloud_download),
-            onPressed: _loadNetworkPdf,
-            tooltip: 'Load Network PDF',
+      // appBar: AppBar(
+      //   title: const Text('Advanced PDF Viewer'),
+      //   actions: [
+      //     IconButton(
+      //       icon: const Icon(Icons.cloud_download),
+      //       onPressed: _loadNetworkPdf,
+      //       tooltip: 'Load Network PDF',
+      //     ),
+      //     IconButton(
+      //       icon: const Icon(Icons.data_object),
+      //       onPressed: _loadBytesPdf,
+      //       tooltip: 'Load Bytes PDF',
+      //     ),
+      //     if (_url != null || _bytes != null) ...[
+      //       IconButton(
+      //         icon: const Icon(Icons.save),
+      //         onPressed: _savePdf,
+      //         tooltip: 'Save PDF',
+      //       ),
+      //     ],
+      //   ],
+      // ),
+      floatingActionButton: Column(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          FloatingActionButton(
+            heroTag: 'text',
+            onPressed: () async {
+              await _controller.addTextAnnotation(
+                "Programmatic Text",
+                100.0,
+                200.0,
+                0, // pageIndex
+                color: Colors.purple,
+              );
+            },
+            tooltip: 'Add Programmatic Text',
+            child: const Icon(Icons.text_fields),
           ),
-          IconButton(
-            icon: const Icon(Icons.data_object),
-            onPressed: _loadBytesPdf,
-            tooltip: 'Load Bytes PDF',
+          const SizedBox(height: 10),
+          FloatingActionButton(
+            heroTag: 'page',
+            onPressed: () async {
+              final total = await _controller.getTotalPages();
+              if (total > 0) {
+                await _controller.jumpToPage(total - 1);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Jumped to last page of $total')),
+                  );
+                }
+              }
+            },
+            tooltip: 'Jump to Last Page',
+            child: const Icon(Icons.last_page),
           ),
-          if (_url != null || _bytes != null) ...[
-            IconButton(
-              icon: const Icon(Icons.save),
-              onPressed: _savePdf,
-              tooltip: 'Save PDF',
-            ),
-          ],
         ],
       ),
       body: _url == null && _bytes == null
@@ -87,12 +133,30 @@ class _MyAppState extends State<MyApp> {
                           _url!,
                           controller: _controller,
                           key: ValueKey(_url),
-                          showToolbar: true,
+                          config: PdfViewerConfig(
+                            showTextButton: true,
+                            allowFullScreen: false,
+                            toolbarColor: Colors.white,
+                            onFullScreenInit: () {
+                              log('full screen initialized');
+                            },
+                            highlightColor: Color(
+                              0x8000FF00,
+                            ), // Semi-transparent green
+                          ),
                         )
                       : AdvancedPdfViewer.bytes(
                           _bytes!,
                           controller: _controller,
+
                           key: ValueKey(_bytes.hashCode),
+                          config: PdfViewerConfig(
+                            showTextButton: true,
+                            drawColor: Colors.blue,
+                            onFullScreenInit: () {
+                              print("Entered full screen!");
+                            },
+                          ),
                         ),
                 ),
               ],

@@ -85,5 +85,7 @@ flutter:
   #       - asset: fonts/TrajanPro_Bold.ttf
   #         weight: 700
   #
-  # For details regarding fonts from package dependencies,
-  # see https://flutter.dev/to/font-from-package
+  # fonts:
+  #   - family: Arial
+  #     fonts:
+  #       - asset: assets/fonts/Arial.ttf

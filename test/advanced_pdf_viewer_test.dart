@@ -18,6 +18,16 @@ class MockAdvancedPdfViewerPlatform
 
   @override
   Future<List<int>?> savePdf() => Future.value([1, 2, 3]);
+
+  @override
+  Future<void> addTextAnnotation(String text, double x, double y) =>
+      Future.value();
+
+  @override
+  Future<void> jumpToPage(int page) => Future.value();
+
+  @override
+  Future<int> getTotalPages() => Future.value(10);
 }
 
 void main() {

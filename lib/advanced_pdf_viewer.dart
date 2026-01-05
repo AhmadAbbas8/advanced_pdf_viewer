@@ -1,44 +1,18 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
-
+import 'package:flutter/services.dart';
 import 'advanced_pdf_viewer_platform_interface.dart';
+import 'src/pdf_viewer_controller.dart';
+import 'src/pdf_cache_manager.dart';
+import 'src/pdf_viewer_config.dart';
+import 'src/pdf_toolbar.dart';
 
-import 'package:http/http.dart' as http;
-import 'package:path_provider/path_provider.dart';
-import 'dart:io';
-import 'package:crypto/crypto.dart';
-import 'dart:convert';
-
-enum PdfAnnotationTool { none, draw, highlight, underline }
+export 'src/pdf_viewer_controller.dart';
+export 'src/pdf_viewer_config.dart';
 
 class AdvancedPdfViewerPlugin {
   Future<String?> getPlatformVersion() {
     return AdvancedPdfViewerPlatform.instance.getPlatformVersion();
-  }
-}
-
-class AdvancedPdfViewerController {
-  MethodChannel? _channel;
-
-  void _setChannel(MethodChannel channel) {
-    _channel = channel;
-  }
-
-  /// Sets the current drawing tool.
-  Future<void> setDrawingMode(PdfAnnotationTool tool) async {
-    await _channel?.invokeMethod('setDrawingMode', {'tool': tool.name});
-  }
-
-  /// Clears all annotations from the PDF.
-  Future<void> clearAnnotations() async {
-    await _channel?.invokeMethod('clearAnnotations');
-  }
-
-  /// Saves the PDF with annotations and returns the data as a List of ints.
-  Future<List<int>?> savePdf() async {
-    final Uint8List? data = await _channel?.invokeMethod<Uint8List>('savePdf');
-    return data?.toList();
   }
 }
 
@@ -48,6 +22,7 @@ class AdvancedPdfViewer extends StatefulWidget {
   final AdvancedPdfViewerController? controller;
   final Widget? loadingWidget;
   final bool showToolbar;
+  final PdfViewerConfig config;
 
   const AdvancedPdfViewer.network(
     this.url, {
@@ -55,6 +30,7 @@ class AdvancedPdfViewer extends StatefulWidget {
     this.controller,
     this.loadingWidget,
     this.showToolbar = true,
+    this.config = const PdfViewerConfig(),
   }) : bytes = null;
 
   const AdvancedPdfViewer.bytes(
@@ -63,7 +39,16 @@ class AdvancedPdfViewer extends StatefulWidget {
     this.controller,
     this.loadingWidget,
     this.showToolbar = true,
+    this.config = const PdfViewerConfig(),
   }) : url = null;
+
+  const AdvancedPdfViewer._internal({
+    this.url,
+    this.bytes,
+    this.controller,
+    required this.showToolbar,
+    required this.config,
+  }) : loadingWidget = null;
 
   @override
   State<AdvancedPdfViewer> createState() => _AdvancedPdfViewerState();
@@ -78,35 +63,28 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
   @override
   void initState() {
     super.initState();
+    widget.controller?.setOnPdfTapped(_onPdfTapped);
     _preparePdf();
+  }
+
+  @override
+  void didUpdateWidget(AdvancedPdfViewer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.config != oldWidget.config) {
+      widget.controller?.updateConfig(
+        drawColor: widget.config.drawColor,
+        highlightColor: widget.config.highlightColor,
+        underlineColor: widget.config.underlineColor,
+      );
+    }
   }
 
   Future<void> _preparePdf() async {
     try {
-      final tempDir = await getTemporaryDirectory();
-      File file;
-
-      if (widget.url != null) {
-        final hash = md5.convert(utf8.encode(widget.url!)).toString();
-        file = File('${tempDir.path}/$hash.pdf');
-        if (!await file.exists()) {
-          final response = await http.get(Uri.parse(widget.url!));
-          if (response.statusCode == 200) {
-            await file.writeAsBytes(response.bodyBytes);
-          } else {
-            throw Exception('Failed to download PDF: ${response.statusCode}');
-          }
-        }
-      } else if (widget.bytes != null) {
-        final hash = md5.convert(widget.bytes!).toString();
-        file = File('${tempDir.path}/$hash.pdf');
-        if (!await file.exists()) {
-          await file.writeAsBytes(widget.bytes!);
-        }
-      } else {
-        throw Exception('No PDF source provided');
-      }
-
+      final file = await PdfCacheManager.preparePdf(
+        url: widget.url,
+        bytes: widget.bytes,
+      );
       if (mounted) {
         setState(() {
           _localPath = file.path;
@@ -123,11 +101,104 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
     }
   }
 
+  void _onPdfTapped(double x, double y, int pageIndex) {
+    if (_currentTool == PdfAnnotationTool.text) {
+      _showTextInputDialog(x, y, pageIndex);
+    }
+  }
+
+  Future<void> _showTextInputDialog(double x, double y, int pageIndex) async {
+    final TextEditingController textController = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add Text'),
+        content: TextField(
+          controller: textController,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'Enter text here'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, textController.text),
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null && result.isNotEmpty) {
+      widget.controller?.addTextAnnotation(
+        result,
+        x,
+        y,
+        pageIndex,
+        color: widget.config.drawColor,
+      );
+    }
+  }
+
   void _onToolSelected(PdfAnnotationTool tool) {
     setState(() {
       _currentTool = tool;
     });
-    widget.controller?.setDrawingMode(tool);
+    Color? color;
+    if (tool == PdfAnnotationTool.draw) color = widget.config.drawColor;
+    if (tool == PdfAnnotationTool.highlight)
+      color = widget.config.highlightColor;
+    if (tool == PdfAnnotationTool.underline)
+      color = widget.config.underlineColor;
+    widget.controller?.setDrawingMode(tool, color: color);
+
+    // Lock scrolling if any annotation tool is active
+    final bool shouldLock = tool != PdfAnnotationTool.none;
+    widget.controller?.setScrollLocked(shouldLock);
+  }
+
+  Future<void> _onFullScreen() async {
+    widget.config.onFullScreenInit?.call();
+
+    final PdfAnnotationTool? resultTool = await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          body: Stack(
+            children: [
+              AdvancedPdfViewer._internal(
+                url: widget.url,
+                bytes: widget.bytes,
+                controller: widget.controller,
+                showToolbar: widget.showToolbar,
+                config: widget.config.copyWith(allowFullScreen: false),
+              ),
+              SafeArea(
+                child: Align(
+                  alignment: Alignment.topRight,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: CircleAvatar(
+                      backgroundColor: Colors.black.withAlpha(54),
+                      child: IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white),
+                        onPressed: () =>
+                            Navigator.of(context).pop(_currentTool),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (mounted && resultTool != null) {
+      _onToolSelected(resultTool);
+    }
   }
 
   @override
@@ -143,47 +214,20 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
 
     return Stack(
       children: [
-        Column(children: [Expanded(child: _buildNativeView())]),
+        _buildNativeView(),
         if (widget.showToolbar)
-          Positioned(
-            top: 10,
-            left: 10,
-            right: 10,
-            child: Card(
-              elevation: 4,
+          SafeArea(
+            bottom: false,
+            child: Align(
+              alignment: Alignment.topCenter,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _ToolButton(
-                      icon: Icons.pan_tool_alt,
-                      isSelected: _currentTool == PdfAnnotationTool.none,
-                      onPressed: () => _onToolSelected(PdfAnnotationTool.none),
-                    ),
-                    _ToolButton(
-                      icon: Icons.edit,
-                      isSelected: _currentTool == PdfAnnotationTool.draw,
-                      onPressed: () => _onToolSelected(PdfAnnotationTool.draw),
-                    ),
-                    _ToolButton(
-                      icon: Icons.brush,
-                      isSelected: _currentTool == PdfAnnotationTool.highlight,
-                      onPressed: () =>
-                          _onToolSelected(PdfAnnotationTool.highlight),
-                    ),
-                    _ToolButton(
-                      icon: Icons.format_underlined,
-                      isSelected: _currentTool == PdfAnnotationTool.underline,
-                      onPressed: () =>
-                          _onToolSelected(PdfAnnotationTool.underline),
-                    ),
-                    const VerticalDivider(),
-                    IconButton(
-                      icon: const Icon(Icons.delete_sweep),
-                      onPressed: () => widget.controller?.clearAnnotations(),
-                    ),
-                  ],
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                child: PdfToolbar(
+                  currentTool: _currentTool,
+                  onToolSelected: _onToolSelected,
+                  controller: widget.controller,
+                  config: widget.config,
+                  onFullScreenPressed: _onFullScreen,
                 ),
               ),
             ),
@@ -214,36 +258,22 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
       );
     }
 
-    return Text('$defaultTargetPlatform is not supported');
+    return Center(child: Text('$defaultTargetPlatform is not supported'));
   }
 
   void _onPlatformViewCreated(int id) {
     final channel = MethodChannel('advanced_pdf_viewer_$id');
-    widget.controller?._setChannel(channel);
-    // Sync current tool if already set
-    if (_currentTool != PdfAnnotationTool.none) {
-      widget.controller?.setDrawingMode(_currentTool);
-    }
-  }
-}
+    widget.controller?.setChannel(channel);
 
-class _ToolButton extends StatelessWidget {
-  final IconData icon;
-  final bool isSelected;
-  final VoidCallback onPressed;
-
-  const _ToolButton({
-    required this.icon,
-    required this.isSelected,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return IconButton(
-      icon: Icon(icon),
-      color: isSelected ? Theme.of(context).primaryColor : null,
-      onPressed: onPressed,
+    // Set initial colors from config
+    widget.controller?.updateConfig(
+      drawColor: widget.config.drawColor,
+      highlightColor: widget.config.highlightColor,
+      underlineColor: widget.config.underlineColor,
     );
+
+    if (_currentTool != PdfAnnotationTool.none) {
+      _onToolSelected(_currentTool);
+    }
   }
 }
