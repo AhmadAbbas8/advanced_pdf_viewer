@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+* **Performance Optimization**: PDF saving now runs on background threads (Android & iOS) to prevent UI blocking.
+* **Adaptive UI**: Toolbar icons are now platform-adaptive, providing a native look and feel on both iOS and Android.
+* **Lifecycle Management**: Added `dispose()` method to `AdvancedPdfViewerController` for proper resource cleanup.
+* **iOS Stability**: Fixed `MissingPluginException` for `setScrollLocked` and improved scroll-lock behavior on iOS.
+
 ## 0.1.0
 
 * **Initial Release** with robust PDF viewing and annotation features.
