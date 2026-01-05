@@ -96,10 +96,18 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
             clearAnnotations()
             result(nil)
         case "savePdf":
-            if let data = pdfView.document?.dataRepresentation() {
-                result(FlutterStandardTypedData(bytes: data))
-            } else {
-                result(FlutterError(code: "SAVE_ERROR", message: "Could not save PDF", details: nil))
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                guard let self = self else { return }
+                if let data = self.pdfView.document?.dataRepresentation() {
+                    let resultData = FlutterStandardTypedData(bytes: data)
+                    DispatchQueue.main.async {
+                        result(resultData)
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        result(FlutterError(code: "SAVE_ERROR", message: "Could not save PDF", details: nil))
+                    }
+                }
             }
         case "addTextAnnotation":
             if let args = call.arguments as? [String: Any],
@@ -133,8 +141,26 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
                 if let underline = args["underlineColor"] as? Int { underlineColor = UIColor(argb: underline) }
                 result(nil)
             }
+        case "setScrollLocked":
+            if let args = call.arguments as? [String: Any],
+               let locked = args["locked"] as? Bool {
+                setScrollLocked(locked)
+                result(nil)
+            } else {
+                result(FlutterError(code: "INVALID_ARGUMENTS", message: "Locked state is required", details: nil))
+            }
         default:
             result(FlutterMethodNotImplemented)
+        }
+    }
+
+    private func setScrollLocked(_ locked: Bool) {
+        // Find the UIScrollview inside PDFView
+        for subview in pdfView.subviews {
+            if let scrollView = subview as? UIScrollView {
+                scrollView.isScrollEnabled = !locked
+                return
+            }
         }
     }
 

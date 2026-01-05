@@ -65,28 +65,28 @@ class _MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // appBar: AppBar(
-      //   title: const Text('Advanced PDF Viewer'),
-      //   actions: [
-      //     IconButton(
-      //       icon: const Icon(Icons.cloud_download),
-      //       onPressed: _loadNetworkPdf,
-      //       tooltip: 'Load Network PDF',
-      //     ),
-      //     IconButton(
-      //       icon: const Icon(Icons.data_object),
-      //       onPressed: _loadBytesPdf,
-      //       tooltip: 'Load Bytes PDF',
-      //     ),
-      //     if (_url != null || _bytes != null) ...[
-      //       IconButton(
-      //         icon: const Icon(Icons.save),
-      //         onPressed: _savePdf,
-      //         tooltip: 'Save PDF',
-      //       ),
-      //     ],
-      //   ],
-      // ),
+      appBar: AppBar(
+        title: const Text('Advanced PDF Viewer'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.cloud_download),
+            onPressed: _loadNetworkPdf,
+            tooltip: 'Load Network PDF',
+          ),
+          IconButton(
+            icon: const Icon(Icons.data_object),
+            onPressed: _loadBytesPdf,
+            tooltip: 'Load Bytes PDF',
+          ),
+          if (_url != null || _bytes != null) ...[
+            IconButton(
+              icon: const Icon(Icons.save),
+              onPressed: _savePdf,
+              tooltip: 'Save PDF',
+            ),
+          ],
+        ],
+      ),
       floatingActionButton: Column(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [

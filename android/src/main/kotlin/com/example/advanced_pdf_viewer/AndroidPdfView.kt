@@ -10,6 +10,8 @@ import android.graphics.PointF
 import android.graphics.RectF
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
+import android.os.Handler
+import android.os.Looper
 import android.view.MotionEvent
 import android.view.GestureDetector
 import android.view.View
@@ -69,6 +71,8 @@ class AndroidPdfView(
     
     private val undoStack = Stack<Annotation>()
     private val redoStack = Stack<Annotation>()
+    
+    private var cachedArabicFont: PDFont? = null
     
     private val bitmapCache = object : android.util.LruCache<Int, Bitmap>((Runtime.getRuntime().maxMemory() / 8).toInt()) {
         override fun sizeOf(key: Int, value: Bitmap): Int = value.byteCount
@@ -309,46 +313,41 @@ class AndroidPdfView(
 
     private fun savePdf(result: MethodChannel.Result) {
         val path = currentPath ?: return result.error("NO_PATH", "No PDF loaded", null)
-        var document: PDDocument? = null
-        try {
-            document = PDDocument.load(File(path))
-            
-            var font: PDFont? = null
-            
-            // 1. Try to load bundled font from Flutter assets
+        
+        Thread {
+            var document: PDDocument? = null
             try {
-                val assetManager = context.assets
-                // Standard path for bundled assets in Flutter apps on Android
-                val inputStream: InputStream = assetManager.open("flutter_assets/assets/fonts/Arial.ttf")
-                font = PDType0Font.load(document, inputStream)
-            } catch (e: Exception) {
-                // Asset not found or failed to load
-            }
-            
-            // 2. Fallback to system fonts
-            if (font == null) {
-                val fontPaths = arrayOf(
-                    "/system/fonts/Arial.ttf",
-                    "/system/fonts/NotoSansArabic-Regular.ttf",
-                    "/system/fonts/NotoNaskhArabic-Regular.ttf",
-                    "/system/fonts/DroidSansArabic.ttf"
-                )
+                document = PDDocument.load(File(path))
+                var font: PDFont? = null
                 
-                for (fp in fontPaths) {
-                    val f = File(fp)
-                    if (f.exists()) {
-                        try {
-                            font = PDType0Font.load(document, f)
-                            break
-                        } catch (e: Exception) {}
+                // Try to load bundled font
+                try {
+                    val inputStream: InputStream = context.assets.open("flutter_assets/assets/fonts/Arial.ttf")
+                    font = PDType0Font.load(document, inputStream)
+                } catch (e: Exception) {}
+                
+                // Fallback to system fonts
+                if (font == null) {
+                    val fontPaths = arrayOf(
+                        "/system/fonts/Arial.ttf",
+                        "/system/fonts/NotoSansArabic-Regular.ttf",
+                        "/system/fonts/NotoNaskhArabic-Regular.ttf",
+                        "/system/fonts/DroidSansArabic.ttf"
+                    )
+                    for (fp in fontPaths) {
+                        val f = File(fp)
+                        if (f.exists()) {
+                            try {
+                                font = PDType0Font.load(document, f)
+                                break
+                            } catch (e: Exception) {}
+                        }
                     }
                 }
-            }
-            
-            // 3. Last fallback
-            if (font == null) {
-                font = com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA_BOLD
-            }
+                
+                if (font == null) {
+                    font = com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA_BOLD
+                }
             
             for (anno in undoStack) {
                 val page = document.getPage(anno.pageIndex)
@@ -442,14 +441,21 @@ class AndroidPdfView(
             
             val outputStream = ByteArrayOutputStream()
             document.save(outputStream)
-            result.success(outputStream.toByteArray())
+            val bytes = outputStream.toByteArray()
+            
+            Handler(Looper.getMainLooper()).post {
+                result.success(bytes)
+            }
         } catch (e: Exception) {
             e.printStackTrace()
-            result.error("SAVE_ERROR", e.message, null)
+            Handler(Looper.getMainLooper()).post {
+                result.error("SAVE_ERROR", e.message, null)
+            }
         } finally {
             document?.close()
         }
-    }
+    }.start()
+}
 
     inner class AnnotationImageView(context: Context, var pageIndex: Int, var pdfWidth: Int, var pdfHeight: Int) : ImageView(context) {
         

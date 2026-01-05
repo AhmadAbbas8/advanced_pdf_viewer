@@ -39,7 +39,11 @@ class PdfToolbar extends StatelessWidget {
                 ),
                 if (config.showDrawButton)
                   _ToolButton(
-                    icon: Icons.edit,
+                    icon:
+                        config.showDrawButton &&
+                            Theme.of(context).platform == TargetPlatform.iOS
+                        ? Icons.draw
+                        : Icons.edit,
                     isSelected: currentTool == PdfAnnotationTool.draw,
                     onPressed: () => onToolSelected(PdfAnnotationTool.draw),
                     tooltip: 'Draw',
@@ -76,13 +80,21 @@ class PdfToolbar extends StatelessWidget {
                   ),
                 if (config.showUndoButton)
                   IconButton(
-                    icon: const Icon(Icons.undo),
+                    icon: Icon(
+                      Theme.of(context).platform == TargetPlatform.iOS
+                          ? Icons.undo_rounded
+                          : Icons.undo,
+                    ),
                     onPressed: () => controller?.undo(),
                     tooltip: 'Undo',
                   ),
                 if (config.showRedoButton)
                   IconButton(
-                    icon: const Icon(Icons.redo),
+                    icon: Icon(
+                      Theme.of(context).platform == TargetPlatform.iOS
+                          ? Icons.redo_rounded
+                          : Icons.redo,
+                    ),
                     onPressed: () => controller?.redo(),
                     tooltip: 'Redo',
                   ),
@@ -98,7 +110,11 @@ class PdfToolbar extends StatelessWidget {
                     child: VerticalDivider(width: 20),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.fullscreen),
+                    icon: Icon(
+                      Theme.of(context).platform == TargetPlatform.iOS
+                          ? Icons.fullscreen_rounded
+                          : Icons.fullscreen,
+                    ),
                     onPressed: onFullScreenPressed,
                     tooltip: 'Full Screen',
                   ),

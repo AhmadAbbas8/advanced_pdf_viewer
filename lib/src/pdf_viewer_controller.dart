@@ -102,4 +102,11 @@ class AdvancedPdfViewerController {
       'underlineColor': underlineColor?.value,
     });
   }
+
+  /// Disposes of the controller and its resources.
+  void dispose() {
+    _channel?.setMethodCallHandler(null);
+    _channel = null;
+    _onPdfTapped = null;
+  }
 }
