@@ -1,5 +1,3 @@
-import 'dart:developer';
-
 import 'package:flutter/material.dart';
 import 'package:advanced_pdf_viewer/advanced_pdf_viewer.dart';
 import 'dart:typed_data';
@@ -20,7 +18,6 @@ class _MyAppState extends State<MyApp> {
   String? _url;
   Uint8List? _bytes;
   final AdvancedPdfViewerController _controller = AdvancedPdfViewerController();
-  String _currentTool = 'none';
 
   Future<void> _loadNetworkPdf() async {
     setState(() {
@@ -45,9 +42,8 @@ class _MyAppState extends State<MyApp> {
 
   Future<void> _savePdf() async {
     final data = await _controller.savePdf();
-   setState(() {
-     
-   _bytes = Uint8List.fromList(data!);
+    setState(() {
+      _bytes = Uint8List.fromList(data!);
     });
     if (data != null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -74,40 +70,10 @@ class _MyAppState extends State<MyApp> {
           ),
           if (_url != null || _bytes != null) ...[
             IconButton(
-              icon: Icon(
-                Icons.edit,
-                color: _currentTool == 'draw' ? Colors.blue : null,
-              ),
-              onPressed: () {
-                setState(() => _currentTool = 'draw');
-                _controller.setDrawingMode('draw');
-              },
+              icon: const Icon(Icons.save),
+              onPressed: _savePdf,
+              tooltip: 'Save PDF',
             ),
-            IconButton(
-              icon: Icon(
-                Icons.brush,
-                color: _currentTool == 'highlight' ? Colors.blue : null,
-              ),
-              onPressed: () {
-                setState(() => _currentTool = 'highlight');
-                _controller.setDrawingMode('highlight');
-              },
-            ),
-            IconButton(
-              icon: Icon(
-                Icons.format_underlined,
-                color: _currentTool == 'underline' ? Colors.blue : null,
-              ),
-              onPressed: () {
-                setState(() => _currentTool = 'underline');
-                _controller.setDrawingMode('underline');
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.delete_sweep),
-              onPressed: () => _controller.clearAnnotations(),
-            ),
-            IconButton(icon: const Icon(Icons.save), onPressed: _savePdf),
           ],
         ],
       ),
@@ -121,6 +87,7 @@ class _MyAppState extends State<MyApp> {
                           _url!,
                           controller: _controller,
                           key: ValueKey(_url),
+                          showToolbar: true,
                         )
                       : AdvancedPdfViewer.bytes(
                           _bytes!,

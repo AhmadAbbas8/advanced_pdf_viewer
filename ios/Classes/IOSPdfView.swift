@@ -33,6 +33,9 @@ class IOSPdfView: NSObject, FlutterPlatformView {
     private var methodChannel: FlutterMethodChannel
     private var currentTool: String = "none"
 
+    private var currentPath: UIBezierPath?
+    private var currentAnnotation: PDFAnnotation?
+
     init(
         frame: CGRect,
         viewIdentifier viewId: Int64,
@@ -99,32 +102,67 @@ class IOSPdfView: NSObject, FlutterPlatformView {
     }
 
     private func setupGestureRecognizers() {
+        let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        pdfView.addGestureRecognizer(panGesture)
+        
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         pdfView.addGestureRecognizer(tapGesture)
-        
-        // For drawing, we might need a custom view over PDFView or use PDFAnnotation directly
-        // For simplicity in this initial implementation, let's support basic highlights/underline via selection
     }
 
-    @objc func handleTap(_ gesture: UITapGestureRecognizer) {
-        guard currentTool != "none" else { return }
+    @objc func handlePan(_ gesture: UIPanGestureRecognizer) {
+        guard currentTool == "draw" else { return }
         
         let location = gesture.location(in: pdfView)
         guard let page = pdfView.page(for: location, nearest: true) else { return }
-        let pageLocation = pdfView.convert(location, to: page)
+        let pagePoint = pdfView.convert(location, to: page)
         
-        if currentTool == "highlight" || currentTool == "underline" {
-            // In a real app, we would look for text at this location
-            // For now, let's add a sample annotation at the tap location
-            let rect = CGRect(x: pageLocation.x - 50, y: pageLocation.y - 10, width: 100, height: 20)
-            let annotation = PDFAnnotation(bounds: rect, forType: .highlight, withProperties: nil)
-            annotation.color = currentTool == "highlight" ? .yellow.withAlphaComponent(0.5) : .blue
-            page.addAnnotation(annotation)
-        } else if currentTool == "draw" {
-            let rect = CGRect(x: pageLocation.x - 5, y: pageLocation.y - 5, width: 10, height: 10)
-            let annotation = PDFAnnotation(bounds: rect, forType: .ink, withProperties: nil)
+        switch gesture.state {
+        case .began:
+            currentPath = UIBezierPath()
+            currentPath?.move(to: pagePoint)
+            
+            let annotation = PDFAnnotation(bounds: page.bounds(for: .mediaBox), forType: .ink, withProperties: nil)
             annotation.color = .red
-            // Ink annotations usually require a path, this is a simplified version
+            annotation.border = PDFBorder()
+            annotation.border?.lineWidth = 3
+            currentAnnotation = annotation
+            page.addAnnotation(annotation)
+            
+        case .changed:
+            currentPath?.addLine(to: pagePoint)
+            if let path = currentPath {
+                currentAnnotation?.add(path)
+            }
+            
+        case .ended, .cancelled:
+            currentPath = nil
+            currentAnnotation = nil
+            
+        default:
+            break
+        }
+    }
+
+    @objc func handleTap(_ gesture: UITapGestureRecognizer) {
+        guard currentTool == "highlight" || currentTool == "underline" else { return }
+        
+        let location = gesture.location(in: pdfView)
+        guard let page = pdfView.page(for: location, nearest: true) else { return }
+        let pagePoint = pdfView.convert(location, to: page)
+        
+        // Try to find text selection at point
+        if let selection = page.selection(at: pagePoint) {
+            let annotationType: PDFAnnotationSubtype = currentTool == "highlight" ? .highlight : .underline
+            let annotation = PDFAnnotation(bounds: selection.bounds(for: page), forType: annotationType, withProperties: nil)
+            annotation.color = currentTool == "highlight" ? .yellow.withAlphaComponent(0.5) : .blue
+            
+            // Add quadrilateral points for better text alignment
+            let lineSelections = selection.selectionsByLine()
+            for lineSelection in lineSelections {
+                // In a more advanced version, we'd add quadrilaterals here. 
+                // PDFAnnotation for highlight automatically handles the selection bounds well.
+            }
+            
             page.addAnnotation(annotation)
         }
     }

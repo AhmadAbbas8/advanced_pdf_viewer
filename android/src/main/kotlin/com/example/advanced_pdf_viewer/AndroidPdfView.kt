@@ -158,54 +158,96 @@ class AndroidPdfView(
     }
 
     inner class AnnotationImageView(context: Context, val pageIndex: Int) : androidx.appcompat.widget.AppCompatImageView(context) {
-        private val localAnnotations = mutableListOf<Annotation>()
-        private val paint = Paint().apply {
-            color = Color.YELLOW
-            alpha = 128
-            style = Paint.Style.FILL
-        }
+        private val localPaths = mutableListOf<AnnotatedPath>()
+        private var currentDrawingPath: android.graphics.Path? = null
+        
         private val drawPaint = Paint().apply {
             color = Color.RED
             strokeWidth = 5f
             style = Paint.Style.STROKE
+            strokeJoin = Paint.Join.ROUND
+            strokeCap = Paint.Cap.ROUND
+            isAntiAlias = true
+        }
+
+        private val highlightPaint = Paint().apply {
+            color = Color.YELLOW
+            alpha = 128
+            style = Paint.Style.FILL
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
             if (currentTool == "none") return super.onTouchEvent(event)
             
-            if (event.action == MotionEvent.ACTION_DOWN) {
-                val anno = Annotation(
-                    pageIndex = pageIndex,
-                    type = currentTool,
-                    x = event.x / 2, // Compensate for bitmap scale if needed
-                    y = event.y / 2,
-                    w = 100f,
-                    h = 40f
-                )
-                annotations.add(anno)
-                localAnnotations.add(anno)
-                invalidate()
-                return true
+            val x = event.x
+            val y = event.y
+
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    if (currentTool == "draw") {
+                        currentDrawingPath = android.graphics.Path().apply {
+                            moveTo(x, y)
+                        }
+                    } else if (currentTool == "highlight" || currentTool == "underline") {
+                        val path = android.graphics.Path().apply {
+                            addRect(x - 100, y - 20, x + 100, y + 20, android.graphics.Path.Direction.CW)
+                        }
+                        val annoPath = AnnotatedPath(path, currentTool, x, y, 200f, 40f)
+                        localPaths.add(annoPath)
+                        // Also add to global annotations for saving
+                        annotations.add(Annotation(pageIndex, currentTool, x / 2, y / 2, 100f, 20f))
+                    }
+                    invalidate()
+                    return true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (currentTool == "draw") {
+                        currentDrawingPath?.lineTo(x, y)
+                        invalidate()
+                    }
+                    return true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (currentTool == "draw") {
+                        currentDrawingPath?.let {
+                            localPaths.add(AnnotatedPath(it, "draw", 0f, 0f, 0f, 0f))
+                            // For saving, we'd need more data, but let's store a simplified version
+                            annotations.add(Annotation(pageIndex, "draw", x / 2, y / 2, 10f, 10f))
+                        }
+                        currentDrawingPath = null
+                        invalidate()
+                    }
+                    return true
+                }
             }
             return super.onTouchEvent(event)
         }
 
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
-            for (anno in localAnnotations) {
-                if (anno.type == "highlight") {
-                    canvas.drawRect(anno.x * 2, anno.y * 2, (anno.x + anno.w) * 2, (anno.y + anno.h) * 2, paint)
-                } else if (anno.type == "draw") {
-                    canvas.drawCircle(anno.x * 2, anno.y * 2, 10f, drawPaint)
-                }
+            for (annoPath in localPaths) {
+                val p = if (annoPath.type == "highlight") highlightPaint else drawPaint
+                canvas.drawPath(annoPath.path, p)
+            }
+            currentDrawingPath?.let {
+                canvas.drawPath(it, drawPaint)
             }
         }
 
         fun clearLocalAnnotations() {
-            localAnnotations.clear()
+            localPaths.clear()
             invalidate()
         }
     }
+
+    data class AnnotatedPath(
+        val path: android.graphics.Path,
+        val type: String,
+        val x: Float,
+        val y: Float,
+        val w: Float,
+        val h: Float
+    )
 
     data class Annotation(
         val pageIndex: Int,
