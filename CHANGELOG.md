@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0
+
+* **Jump to Page**: Added `jumpToPage` method to `AdvancedPdfViewerController` for programmatic navigation to specific pages.
+* **Save PDF**: Added `savePdf` method to `AdvancedPdfViewerController` for saving annotated PDFs to local storage. 
+* **Highlight**: Added `highlightText` method to `AdvancedPdfViewerController` for highlighting text in the PDF.
+* **Underline**: Added `underlineText` method to `AdvancedPdfViewerController` for underlining text in the PDF.
+* **Text Note**: Added `addTextAnnotation` method to `AdvancedPdfViewerController` for adding text notes to the PDF.
+* **Draw**: Added `drawOnPage` method to `AdvancedPdfViewerController` for drawing on the PDF.
+
 ## 0.3.0
 
 * **Performance Optimization**: PDF saving now runs on background threads (Android & iOS) to prevent UI blocking.
