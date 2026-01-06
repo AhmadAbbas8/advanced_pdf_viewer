@@ -155,7 +155,7 @@ class _MyAppState extends State<MyApp> {
                           key: ValueKey(_bytes.hashCode),
                           config: PdfViewerConfig(
                             showTextButton: true,
-                            drawColor: Colors.blue,
+                            drawColor: Colors.white,
                             onFullScreenInit: () {
                               print("Entered full screen!");
                             },

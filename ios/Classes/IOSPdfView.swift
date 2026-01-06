@@ -32,6 +32,7 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
     private var pdfView: PDFView
     private var methodChannel: FlutterMethodChannel
     private var currentTool: String = "none"
+    private var isTempFile: Bool = false
 
     private var currentPath: UIBezierPath?
     private var currentAnnotation: PDFAnnotation?
@@ -62,9 +63,13 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
         
         _view.addSubview(pdfView)
         
-        if let argsDict = args as? [String: Any],
-           let pdfPath = argsDict["path"] as? String {
-            loadPdf(path: pdfPath)
+        if let argsDict = args as? [String: Any] {
+           if let tempFile = argsDict["isTempFile"] as? Bool {
+               isTempFile = tempFile
+           }
+           if let pdfPath = argsDict["path"] as? String {
+               loadPdf(path: pdfPath)
+           }
         }
         
         methodChannel.setMethodCallHandler(handle)
@@ -79,8 +84,21 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
 
     private func loadPdf(path: String) {
         let url = URL(fileURLWithPath: path)
-        if let document = PDFDocument(url: url) {
-            pdfView.document = document
+        
+        if isTempFile {
+            do {
+                let data = try Data(contentsOf: url)
+                if let document = PDFDocument(data: data) {
+                    pdfView.document = document
+                }
+                try FileManager.default.removeItem(at: url)
+            } catch {
+                print("Error loading temp PDF: \(error)")
+            }
+        } else {
+            if let document = PDFDocument(url: url) {
+                pdfView.document = document
+            }
         }
     }
 

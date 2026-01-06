@@ -39,4 +39,18 @@ class PdfCacheManager {
 
     return file;
   }
+
+  static Future<File> downloadToTemp(String url) async {
+    final tempDir = await getTemporaryDirectory();
+    final uniqueId = DateTime.now().millisecondsSinceEpoch.toString();
+    final file = File('${tempDir.path}/temp_$uniqueId.pdf');
+
+    final response = await http.get(Uri.parse(url));
+    if (response.statusCode == 200) {
+      await file.writeAsBytes(response.bodyBytes);
+      return file;
+    } else {
+      throw Exception('Failed to download PDF: ${response.statusCode}');
+    }
+  }
 }

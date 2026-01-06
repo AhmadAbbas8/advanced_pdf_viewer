@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.0
+
+* **Secure PDF Loading**: Implemented `useCache: false` to support secure PDF loading where the file is downloaded to a temporary location and immediately deleted after opening, ensuring no persistent copy remains on the device.
+
+
 ## 0.4.0
 
 * **Jump to Page**: Added `jumpToPage` method to `AdvancedPdfViewerController` for programmatic navigation to specific pages.

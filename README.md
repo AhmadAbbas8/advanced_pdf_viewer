@@ -2,6 +2,8 @@
 
 A high-performance, feature-rich PDF viewer for Flutter with advanced annotation tools and native support for Arabic/RTL text rendering.
 
+![Screenshot](example/screen_shots/1.png)
+
 ## Features
 
 - 🚀 **High Performance**: Uses virtualized rendering (RecyclerView on Android) to handle large PDF files smoothly with minimal memory footprint.
@@ -12,6 +14,7 @@ A high-performance, feature-rich PDF viewer for Flutter with advanced annotation
     - **Highlight & Underline**: Precise markup tools.
 - 🧲 **Snap-to-Text**: Highlights and underlines automatically detect and snap to the nearest text line for perfect alignment.
 - 💾 **Save & Persistence**: Save modified PDFs with your annotations baked in. Supporting mixed language (Arabic/English) text embedding.
+- 🔒 **Secure Storage**: Option to load PDFs without caching or saving to local storage (Stream-to-Temp-Transfer).
 - 🛠️ **Customizable Toolbar**: Easy-to-use toolbar with Undo/Redo support and full-screen mode.
 
 ## Getting started
@@ -29,8 +32,6 @@ Add internet and storage permissions to your `AndroidManifest.xml` if you plan t
 
 ```xml
 <uses-permission android:name="android.permission.INTERNET" />
-<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
 ```
 
 ## Usage
@@ -45,6 +46,12 @@ AdvancedPdfViewer.network('https://example.com/sample.pdf')
 
 // Load from Bytes
 AdvancedPdfViewer.bytes(pdfUint8List)
+
+// Load Securely (No Local Storage)
+AdvancedPdfViewer.network(
+  'https://example.com/sensitive.pdf',
+  useCache: false, // File is deleted immediately after opening
+)
 ```
 
 ### Advanced Usage with Controller

@@ -67,6 +67,7 @@ class AndroidPdfView(
     private var parcelFileDescriptor: ParcelFileDescriptor? = null
     private var currentPath: String? = null
     private var currentTool: String = "none"
+    private var isTempFile: Boolean = false
     
     private val renderExecutor = Executors.newFixedThreadPool(4)
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -141,8 +142,9 @@ class AndroidPdfView(
         }
         
         methodChannel.setMethodCallHandler(this)
-        
         val path = creationParams?.get("path") as? String
+        isTempFile = creationParams?.get("isTempFile") as? Boolean ?: false
+        
         if (path != null) {
             loadPdf(path)
         }
@@ -160,9 +162,18 @@ class AndroidPdfView(
     private fun loadPdf(path: String) {
         currentPath = path
         val file = File(path)
-        parcelFileDescriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-        pdfRenderer = PdfRenderer(parcelFileDescriptor!!)
-        recyclerView.adapter?.notifyDataSetChanged()
+        try {
+            parcelFileDescriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            
+            if (isTempFile && file.exists()) {
+                file.delete()
+            }
+            
+            pdfRenderer = PdfRenderer(parcelFileDescriptor!!)
+            recyclerView.adapter?.notifyDataSetChanged()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     inner class PdfAdapter : RecyclerView.Adapter<PdfViewHolder>() {

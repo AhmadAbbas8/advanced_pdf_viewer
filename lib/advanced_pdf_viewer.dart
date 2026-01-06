@@ -62,6 +62,7 @@ class AdvancedPdfViewer extends StatefulWidget {
 class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
   String? _localPath;
   bool _isLoading = true;
+  bool _isTempFile = false;
   String? _error;
   PdfAnnotationTool _currentTool = PdfAnnotationTool.none;
 
@@ -107,11 +108,17 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
 
   Future<void> _preparePdf() async {
     try {
-      final file = await PdfCacheManager.preparePdf(
-        url: widget.url,
-        bytes: widget.bytes,
-        useCache: widget.useCache,
-      );
+      File file;
+      if (!widget.useCache && widget.url != null) {
+        file = await PdfCacheManager.downloadToTemp(widget.url!);
+        _isTempFile = true;
+      } else {
+        file = await PdfCacheManager.preparePdf(
+          url: widget.url,
+          bytes: widget.bytes,
+          useCache: widget.useCache,
+        );
+      }
       if (mounted) {
         setState(() {
           _localPath = file.path;
@@ -267,6 +274,7 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
     const String viewType = 'advanced_pdf_viewer_view';
     final Map<String, dynamic> creationParams = <String, dynamic>{
       'path': _localPath,
+      'isTempFile': _isTempFile,
     };
 
     if (defaultTargetPlatform == TargetPlatform.android) {
