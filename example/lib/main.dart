@@ -112,7 +112,7 @@ class _MyAppState extends State<MyApp> {
               final total = await _controller.getTotalPages();
               log("Total pages: $total");
               if (total > 0) {
-                await _controller.jumpToPage(total);
+                await _controller.jumpToPage(1);
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Jumped to last page of $total')),

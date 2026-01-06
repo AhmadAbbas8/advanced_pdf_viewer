@@ -34,7 +34,6 @@ import java.util.Stack
 import java.text.Bidi
 import java.util.concurrent.Executors
 
-// PDFBox imports
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
@@ -45,6 +44,8 @@ import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.font.PDType0Font
 import com.tom_roush.pdfbox.pdmodel.font.PDFont
 import com.tom_roush.pdfbox.text.PDFTextStripperByArea
+import com.tom_roush.pdfbox.pdmodel.graphics.state.PDExtendedGraphicsState
+import com.tom_roush.pdfbox.pdmodel.graphics.blend.BlendMode
 
 class AndroidPdfView(
     private val context: Context,
@@ -90,7 +91,6 @@ class AndroidPdfView(
             currentScale *= scaleFactor
             currentScale = Math.max(minScale, Math.min(currentScale, maxScale))
             
-            // Adjust translation to zoom into focal point
             val focalX = detector.focusX
             val focalY = detector.focusY
             translateX -= (focalX / prevScale - focalX / currentScale) * currentScale
@@ -113,8 +113,6 @@ class AndroidPdfView(
         }
     })
     
-    private var cachedArabicFont: PDFont? = null
-    
     private val bitmapCache = object : android.util.LruCache<Int, Bitmap>((Runtime.getRuntime().maxMemory() / 8).toInt()) {
         override fun sizeOf(key: Int, value: Bitmap): Int = value.byteCount
     }
@@ -128,24 +126,17 @@ class AndroidPdfView(
         
         recyclerView.layoutManager = layoutManager
         recyclerView.adapter = PdfAdapter()
+        recyclerView.setItemViewCacheSize(5)
+        recyclerView.setHasFixedSize(true)
         
         recyclerView.setOnTouchListener { _, event ->
             scaleDetector.onTouchEvent(event)
-            
-            if (scaleDetector.isInProgress) {
-                return@setOnTouchListener true
-            }
+            if (scaleDetector.isInProgress) return@setOnTouchListener true
 
             if (currentScale > 1.0f) {
-                // When zoomed, we handle panning and consume events to prevent default scrolling
                 panGestureDetector.onTouchEvent(event)
-                // We return true to consume the event so RecyclerView doesn't scroll vertically
-                // However, we must ensure we don't block the scale detector if it needs subsequent events.
-                // Since we passed to scaleDetector above, it's fine.
                 return@setOnTouchListener true
             }
-
-            // If not zoomed and not scaling, let RecyclerView handle scrolling
             false
         }
         
@@ -171,7 +162,6 @@ class AndroidPdfView(
         val file = File(path)
         parcelFileDescriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
         pdfRenderer = PdfRenderer(parcelFileDescriptor!!)
-        
         recyclerView.adapter?.notifyDataSetChanged()
     }
 
@@ -183,7 +173,6 @@ class AndroidPdfView(
                 RecyclerView.LayoutParams.WRAP_CONTENT
             )
             view.adjustViewBounds = true
-            view.setPadding(0, 10, 0, 10)
             return PdfViewHolder(view)
         }
 
@@ -203,7 +192,7 @@ class AndroidPdfView(
             if (cached != null) {
                 imageView.setImageBitmap(cached)
             } else {
-                imageView.setImageBitmap(null) // Clear while loading
+                imageView.setImageBitmap(null)
                 renderExecutor.execute {
                     try {
                         val renderer = pdfRenderer ?: return@execute
@@ -303,7 +292,7 @@ class AndroidPdfView(
                 getIntArg(call, "highlightColor")?.let { highlightColor = it }
                 result.success(null)
             }
-    "zoomIn" -> {
+            "zoomIn" -> {
                 val prevScale = currentScale
                 currentScale = Math.min(currentScale + 0.5f, maxScale)
                 updateZoom()
@@ -334,7 +323,6 @@ class AndroidPdfView(
     }
 
     private fun updateZoom() {
-        // Clamp translations to keep view in bounds (simple clamping)
         val maxTx = 0f
         val maxTy = 0f
         val minTx = -(recyclerView.width * currentScale - recyclerView.width)
@@ -408,7 +396,6 @@ class AndroidPdfView(
                     try {
                         contentStream.showText(currentText.toString())
                     } catch (e: Exception) {
-                        // If one font fails, try the other as ultimate fallback
                         contentStream.setFont(if (currentIsArabic!!) latinFont else arabicFont, fontSize)
                         contentStream.showText(currentText.toString())
                     }
@@ -444,13 +431,11 @@ class AndroidPdfView(
                 document = PDDocument.load(File(path))
                 var font: PDFont? = null
                 
-                // Try to load bundled font
                 try {
                     val inputStream: InputStream = context.assets.open("flutter_assets/assets/fonts/Arial.ttf")
                     font = PDType0Font.load(document, inputStream)
                 } catch (e: Exception) {}
                 
-                // Fallback to system fonts
                 if (font == null) {
                     val fontPaths = arrayOf(
                         "/system/fonts/Arial.ttf",
@@ -484,70 +469,30 @@ class AndroidPdfView(
                 
                 when (anno.type) {
                     "highlight" -> {
-                        val highlight = PDAnnotationTextMarkup(PDAnnotationTextMarkup.SUB_TYPE_HIGHLIGHT)
-                        val rect = PDRectangle()
+                        val contentStream = PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true, true)
+                        val gState = PDExtendedGraphicsState()
+                        gState.nonStrokingAlphaConstant = 0.5f // 50% opacity
+                        gState.blendMode = BlendMode.MULTIPLY
+                        contentStream.setGraphicsStateParameters(gState)
+                        
+                        setPdfBoxColor(contentStream, anno.color, true) // Set fill color
                         
                         val pdfY = pageHeight - y - h
-                        val pdfTopY = pageHeight - y
-                        
-                        rect.lowerLeftX = x
-                        rect.lowerLeftY = pdfY
-                        rect.upperRightX = x + w
-                        rect.upperRightY = pdfTopY
-                        highlight.rectangle = rect
-                        
-                        // QuadPoints: BL, BR, TR, TL (Counter-clockwise from BL Z-order fix)
-                        val quadPointsNew = floatArrayOf(
-                            x, pdfY,      // BL
-                            x + w, pdfY,  // BR
-                            x + w, pdfTopY, // TR
-                            x, pdfTopY    // TL
-                        )
-                        highlight.quadPoints = quadPointsNew
-                        
-                        val r = ((anno.color shr 16) and 0xFF) / 255f
-                        val g = ((anno.color shr 8) and 0xFF) / 255f
-                        val b = (anno.color and 0xFF) / 255f
-                        highlight.color = PDColor(floatArrayOf(r, g, b), PDDeviceRGB.INSTANCE)
-                        
-                        // Set opacity (CA = alpha)
-                        val cosDict = highlight.cosObject
-                        cosDict.setFloat(com.tom_roush.pdfbox.cos.COSName.CA, 0.5f) // 50% opacity
-                        
-                        highlight.isPrinted = true
-                        highlight.isReadOnly = false // Ensure it can be modified if needed
-                        highlight.constructAppearances()
-                        page.annotations.add(highlight)
+                        contentStream.addRect(x, pdfY, w, h)
+                        contentStream.fill()
+                        contentStream.close()
                     }
                     "underline" -> {
-                        val underline = PDAnnotationTextMarkup(PDAnnotationTextMarkup.SUB_TYPE_UNDERLINE)
-                        val rect = PDRectangle()
+                        val contentStream = PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true, true)
+                        setPdfBoxColor(contentStream, anno.color, false) // Set stroke color
+                        contentStream.setLineWidth(1.5f) // Slightly thinner than draw
+                        
                         val pdfY = pageHeight - y - h
-                        val pdfTopY = pageHeight - y
-                        
-                        rect.lowerLeftX = x
-                        rect.lowerLeftY = pdfY
-                        rect.upperRightX = x + w
-                        rect.upperRightY = pdfTopY
-                        underline.rectangle = rect
-                        
-                        // QuadPoints: BL, BR, TR, TL
-                        val quadPointsNew = floatArrayOf(
-                            x, pdfY,      // BL
-                            x + w, pdfY,  // BR
-                            x + w, pdfTopY, // TR
-                            x, pdfTopY    // TL
-                        )
-                        underline.quadPoints = quadPointsNew
-                        
-                        val r = ((anno.color shr 16) and 0xFF) / 255f
-                        val g = ((anno.color shr 8) and 0xFF) / 255f
-                        val b = (anno.color and 0xFF) / 255f
-                        underline.color = PDColor(floatArrayOf(r, g, b), PDDeviceRGB.INSTANCE)
-                        underline.isPrinted = true
-                        underline.isReadOnly = false
-                        underline.constructAppearances()
-                        page.annotations.add(underline)
+                        // Draw line at bottom of the rect
+                        contentStream.moveTo(x, pdfY)
+                        contentStream.lineTo(x + w, pdfY)
+                        contentStream.stroke()
+                        contentStream.close()
                     }
                     "text" -> {
                         val shapedText = ArabicShaper.shape(anno.text ?: "")
@@ -663,18 +608,18 @@ class AndroidPdfView(
                     post {
                         if (bounds != null) {
                             val h = if (currentTool == "highlight") bounds.height() else 8f
+                            // REMOVED EXTRA PADDING HERE to allow cleaner reversion
                             val yOffset = if (currentTool == "highlight") 0f else bounds.height() - 2f
                             
                             val anno = Annotation(
                                 pageIndex, currentTool, 
                                 bounds.left, bounds.top + yOffset, 
-                                bounds.width(), if (currentTool == "highlight") bounds.height() else 4f, 
+                                bounds.width(), if (currentTool == "highlight") h else 4f, 
                                 null, 
                                 if (currentTool == "highlight") highlightColor else underlineColor
                             )
                             addAnnotation(anno)
                         } else {
-                            // Fallback to manual if no text found
                             val h = if (currentTool == "highlight") 30f else 6f
                             val anno = Annotation(
                                 pageIndex, currentTool, 
@@ -815,19 +760,16 @@ class AndroidPdfView(
                     "text" -> {
                         val textPaint = Paint().apply {
                             color = anno.color
-                            textSize = 34f * invScale / 2f // Adjust text size based on view scale
+                            textSize = 34f * invScale / 2f 
                             isFakeBoldText = true
                         }
-                        // We want 14pt in PDF to look right on screen.
-                        // 14pt * invScale is the view size.
                         textPaint.textSize = 14f * invScale
-                        
                         canvas.drawText(anno.text ?: "", anno.x * invScale, anno.y * invScale, textPaint)
                     }
                     "highlight" -> {
                         val p = Paint().apply { 
                             color = anno.color
-                            alpha = 100 
+                            alpha = 100 // Visual only, semi-transparent
                             style = Paint.Style.FILL
                         }
                         canvas.drawRect(anno.x * invScale, anno.y * invScale, (anno.x + anno.w) * invScale, (anno.y + anno.h) * invScale, p)
@@ -859,7 +801,7 @@ class AndroidPdfView(
             
             currentDrawingPath?.let {
                 drawPaint.color = drawColor
-                drawPaint.strokeWidth = 5f // This is in view pixels, looks okay
+                drawPaint.strokeWidth = 5f
                 canvas.drawPath(it, drawPaint)
             }
 
@@ -920,7 +862,6 @@ class TextLocator(val targetPage: Int, val tapX: Float, val tapY: Float) : com.t
         
         for (pos in textPositions) {
             val c = pos.unicode
-            // treat space and common punctuation as separators, but keep internal punctuation if needed
             if (c == " " || c == "\t" || c == "\n" || c == "\r") {
                  checkWord(currentWord)
                  currentWord.clear()
@@ -946,14 +887,13 @@ class TextLocator(val targetPage: Int, val tapX: Float, val tapY: Float) : com.t
              maxY = Math.max(maxY, p.yDirAdj)
         }
         
-        // Expand target slightly for easier tapping
         val wordRect = RectF(minX, minY, maxX, maxY)
         val touchRect = RectF(minX - 20, minY - 15, maxX + 20, maxY + 15)
         
         if (touchRect.contains(tapX, tapY)) {
              val distY = Math.abs(wordRect.centerY() - tapY)
              val distX = Math.abs(wordRect.centerX() - tapX)
-             val dist = distY + distX // Simple Manhattan distance for preference
+             val dist = distY + distX
              
              if (dist < minDist) {
                  minDist = dist
@@ -1014,10 +954,6 @@ class TextRangeLocator(val targetPage: Int, val x1: Float, val y1: Float, val x2
     }
 }
 
-/**
- * Basic Arabic Shaper and Bidi helper.
- * Reorders characters for RTL and handles character joining.
- */
 object ArabicShaper {
     // Map of Arabic characters to their (Isolated, Initial, Medial, Final) forms
     private val SHAPING_MAP = mapOf(
