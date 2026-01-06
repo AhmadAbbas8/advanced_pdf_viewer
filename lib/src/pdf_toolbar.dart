@@ -119,6 +119,22 @@ class PdfToolbar extends StatelessWidget {
                     tooltip: 'Full Screen',
                   ),
                 ],
+                if (config.showZoomButtons) ...[
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8.0),
+                    child: VerticalDivider(width: 20),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.zoom_in),
+                    onPressed: () => controller?.zoomIn(),
+                    tooltip: 'Zoom In',
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.zoom_out),
+                    onPressed: () => controller?.zoomOut(),
+                    tooltip: 'Zoom Out',
+                  ),
+                ],
               ],
             ),
           ),

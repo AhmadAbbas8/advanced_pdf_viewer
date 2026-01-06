@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:io';
 import 'advanced_pdf_viewer_platform_interface.dart';
 import 'src/pdf_viewer_controller.dart';
 import 'src/pdf_cache_manager.dart';
@@ -23,6 +24,7 @@ class AdvancedPdfViewer extends StatefulWidget {
   final Widget? loadingWidget;
   final bool showToolbar;
   final PdfViewerConfig config;
+  final bool useCache;
 
   const AdvancedPdfViewer.network(
     this.url, {
@@ -31,6 +33,7 @@ class AdvancedPdfViewer extends StatefulWidget {
     this.loadingWidget,
     this.showToolbar = true,
     this.config = const PdfViewerConfig(),
+    this.useCache = true,
   }) : bytes = null;
 
   const AdvancedPdfViewer.bytes(
@@ -40,6 +43,7 @@ class AdvancedPdfViewer extends StatefulWidget {
     this.loadingWidget,
     this.showToolbar = true,
     this.config = const PdfViewerConfig(),
+    this.useCache = true,
   }) : url = null;
 
   const AdvancedPdfViewer._internal({
@@ -48,6 +52,7 @@ class AdvancedPdfViewer extends StatefulWidget {
     this.controller,
     required this.showToolbar,
     required this.config,
+    this.useCache = true,
   }) : loadingWidget = null;
 
   @override
@@ -79,11 +84,33 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
     }
   }
 
+  @override
+  void dispose() {
+    if (!widget.useCache && _localPath != null) {
+      _cleanupCache();
+    }
+    super.dispose();
+  }
+
+  Future<void> _cleanupCache() async {
+    try {
+      if (_localPath != null) {
+        final file = File(_localPath!);
+        if (await file.exists()) {
+          await file.delete();
+        }
+      }
+    } catch (e) {
+      debugPrint('Error cleaning up cache: $e');
+    }
+  }
+
   Future<void> _preparePdf() async {
     try {
       final file = await PdfCacheManager.preparePdf(
         url: widget.url,
         bytes: widget.bytes,
+        useCache: widget.useCache,
       );
       if (mounted) {
         setState(() {

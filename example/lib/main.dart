@@ -52,10 +52,11 @@ class _MyAppState extends State<MyApp> {
 
   Future<void> _savePdf() async {
     final data = await _controller.savePdf();
-    setState(() {
-      _bytes = Uint8List.fromList(data!);
-    });
     if (data != null) {
+      setState(() {
+        _bytes = Uint8List.fromList(data);
+        _url = null; // Switch to displaying bytes
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('PDF Saved! Data length: ${data.length}')),
       );
@@ -109,8 +110,9 @@ class _MyAppState extends State<MyApp> {
             heroTag: 'page',
             onPressed: () async {
               final total = await _controller.getTotalPages();
+              log("Total pages: $total");
               if (total > 0) {
-                await _controller.jumpToPage(total - 1);
+                await _controller.jumpToPage(total);
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Jumped to last page of $total')),
@@ -136,6 +138,7 @@ class _MyAppState extends State<MyApp> {
                           config: PdfViewerConfig(
                             showTextButton: true,
                             allowFullScreen: false,
+
                             toolbarColor: Colors.white,
                             onFullScreenInit: () {
                               log('full screen initialized');

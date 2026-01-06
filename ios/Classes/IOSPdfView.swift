@@ -57,6 +57,8 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
         pdfView.autoScales = true
         pdfView.displayMode = .singlePageContinuous
         pdfView.displayDirection = .vertical
+        pdfView.minScaleFactor = 1.0
+        pdfView.maxScaleFactor = 5.0
         
         _view.addSubview(pdfView)
         
@@ -122,9 +124,12 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
             }
         case "jumpToPage":
             if let args = call.arguments as? [String: Any],
-               let pageIndex = args["page"] as? Int,
-               let document = pdfView.document,
-               pageIndex < document.pageCount {
+               var pageIndex = args["page"] as? Int,
+               let document = pdfView.document {
+                
+                // Clamp index to ensure it is valid
+                pageIndex = max(0, min(pageIndex, document.pageCount - 1))
+                
                 if let page = document.page(at: pageIndex) {
                     pdfView.go(to: page)
                 }
@@ -148,6 +153,20 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
                 result(nil)
             } else {
                 result(FlutterError(code: "INVALID_ARGUMENTS", message: "Locked state is required", details: nil))
+            }
+        case "zoomIn":
+            pdfView.scaleFactor = min(pdfView.scaleFactor + 0.2, pdfView.maxScaleFactor)
+            result(nil)
+        case "zoomOut":
+            pdfView.scaleFactor = max(pdfView.scaleFactor - 0.2, pdfView.minScaleFactor)
+            result(nil)
+        case "setZoom":
+            if let args = call.arguments as? [String: Any],
+               let scale = args["scale"] as? Double {
+                pdfView.scaleFactor = CGFloat(max(pdfView.minScaleFactor, min(CGFloat(scale), pdfView.maxScaleFactor)))
+                result(nil)
+            } else {
+                result(FlutterError(code: "INVALID_ARGUMENTS", message: "Scale is required", details: nil))
             }
         default:
             result(FlutterMethodNotImplemented)
@@ -174,15 +193,21 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-        if currentTool == "draw" {
-            return false // Don't scroll while drawing
+        if currentTool != "none" {
+            return false // Don't scroll while drawing or selecting
         }
         return true
     }
 
     @objc func handlePan(_ gesture: UIPanGestureRecognizer) {
-        guard currentTool == "draw" else { return }
-        
+        if currentTool == "draw" {
+            handleDrawPan(gesture)
+        } else if currentTool == "highlight" || currentTool == "underline" {
+            handleSelectionPan(gesture)
+        }
+    }
+
+    private func handleDrawPan(_ gesture: UIPanGestureRecognizer) {
         let location = gesture.location(in: pdfView)
         guard let page = pdfView.page(for: location, nearest: true) else { return }
         let pagePoint = pdfView.convert(location, to: page)
@@ -211,6 +236,46 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
             
         default:
             break
+        }
+    }
+
+    private var selectionStartPoint: CGPoint?
+    
+    private func handleSelectionPan(_ gesture: UIPanGestureRecognizer) {
+        let location = gesture.location(in: pdfView)
+        guard let page = pdfView.page(for: location, nearest: true) else { return }
+        let pagePoint = pdfView.convert(location, to: page)
+        
+        switch gesture.state {
+        case .began:
+            selectionStartPoint = pagePoint
+        case .changed:
+            if let start = selectionStartPoint {
+                let selection = page.selection(from: start, to: pagePoint)
+                pdfView.currentSelection = selection
+            }
+        case .ended, .cancelled:
+            if let selection = pdfView.currentSelection {
+                addAnnotationsForSelection(selection)
+            }
+            pdfView.currentSelection = nil
+            selectionStartPoint = nil
+        default:
+            break
+        }
+    }
+
+    private func addAnnotationsForSelection(_ selection: PDFSelection) {
+        let annotationType: PDFAnnotationSubtype = currentTool == "highlight" ? .highlight : .underline
+        let color = currentTool == "highlight" ? highlightColor : underlineColor
+        
+        for page in selection.pages {
+            let boundsList = selection.selectionsByLine().filter { $0.pages.contains(page) }
+            for lineSelection in boundsList {
+                let annotation = PDFAnnotation(bounds: lineSelection.bounds(for: page), forType: annotationType, withProperties: nil)
+                annotation.color = color
+                page.addAnnotation(annotation)
+            }
         }
     }
 

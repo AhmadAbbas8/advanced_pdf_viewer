@@ -14,6 +14,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.MotionEvent
 import android.view.GestureDetector
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
@@ -31,6 +32,7 @@ import java.io.FileOutputStream
 import java.io.InputStream
 import java.util.Stack
 import java.text.Bidi
+import java.util.concurrent.Executors
 
 // PDFBox imports
 import com.tom_roush.pdfbox.pdmodel.PDDocument
@@ -65,12 +67,51 @@ class AndroidPdfView(
     private var currentPath: String? = null
     private var currentTool: String = "none"
     
+    private val renderExecutor = Executors.newFixedThreadPool(4)
+    private val mainHandler = Handler(Looper.getMainLooper())
+    
     private var drawColor: Int = Color.RED
     private var highlightColor: Int = Color.YELLOW
     private var underlineColor: Int = Color.BLUE
     
     private val undoStack = Stack<Annotation>()
     private val redoStack = Stack<Annotation>()
+    
+    private var currentScale: Float = 1.0f
+    private var translateX: Float = 0f
+    private var translateY: Float = 0f
+    private val minScale: Float = 1.0f
+    private val maxScale: Float = 5.0f
+
+    private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        override fun onScale(detector: ScaleGestureDetector): Boolean {
+            val scaleFactor = detector.scaleFactor
+            val prevScale = currentScale
+            currentScale *= scaleFactor
+            currentScale = Math.max(minScale, Math.min(currentScale, maxScale))
+            
+            // Adjust translation to zoom into focal point
+            val focalX = detector.focusX
+            val focalY = detector.focusY
+            translateX -= (focalX / prevScale - focalX / currentScale) * currentScale
+            translateY -= (focalY / prevScale - focalY / currentScale) * currentScale
+            
+            updateZoom()
+            return true
+        }
+    })
+
+    private val panGestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+        override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
+            if (currentScale > 1.0f && currentTool == "none") {
+                translateX -= distanceX
+                translateY -= distanceY
+                updateZoom()
+                return true
+            }
+            return false
+        }
+    })
     
     private var cachedArabicFont: PDFont? = null
     
@@ -88,6 +129,26 @@ class AndroidPdfView(
         recyclerView.layoutManager = layoutManager
         recyclerView.adapter = PdfAdapter()
         
+        recyclerView.setOnTouchListener { _, event ->
+            scaleDetector.onTouchEvent(event)
+            
+            if (scaleDetector.isInProgress) {
+                return@setOnTouchListener true
+            }
+
+            if (currentScale > 1.0f) {
+                // When zoomed, we handle panning and consume events to prevent default scrolling
+                panGestureDetector.onTouchEvent(event)
+                // We return true to consume the event so RecyclerView doesn't scroll vertically
+                // However, we must ensure we don't block the scale detector if it needs subsequent events.
+                // Since we passed to scaleDetector above, it's fine.
+                return@setOnTouchListener true
+            }
+
+            // If not zoomed and not scaling, let RecyclerView handle scrolling
+            false
+        }
+        
         methodChannel.setMethodCallHandler(this)
         
         val path = creationParams?.get("path") as? String
@@ -102,6 +163,7 @@ class AndroidPdfView(
         pdfRenderer?.close()
         parcelFileDescriptor?.close()
         bitmapCache.evictAll()
+        renderExecutor.shutdown()
     }
 
     private fun loadPdf(path: String) {
@@ -141,13 +203,27 @@ class AndroidPdfView(
             if (cached != null) {
                 imageView.setImageBitmap(cached)
             } else {
-                val bitmap = Bitmap.createBitmap(w * 2, h * 2, Bitmap.Config.ARGB_8888)
-                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                bitmapCache.put(position, bitmap)
-                imageView.setImageBitmap(bitmap)
+                imageView.setImageBitmap(null) // Clear while loading
+                renderExecutor.execute {
+                    try {
+                        val renderer = pdfRenderer ?: return@execute
+                        val page = renderer.openPage(position)
+                        val bitmap = Bitmap.createBitmap(w * 2, h * 2, Bitmap.Config.ARGB_8888)
+                        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        page.close()
+                        
+                        bitmapCache.put(position, bitmap)
+                        
+                        mainHandler.post {
+                            if (imageView.pageIndex == position) {
+                                imageView.setImageBitmap(bitmap)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
             }
-            
-            page.close()
         }
 
         override fun getItemCount(): Int = pdfRenderer?.pageCount ?: 0
@@ -216,7 +292,7 @@ class AndroidPdfView(
             }
             "jumpToPage" -> {
                 val pageIndex = getIntArg(call, "page") ?: 0
-                recyclerView.scrollToPosition(pageIndex)
+                (layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(pageIndex, 0)
                 result.success(null)
             }
             "getTotalPages" -> {
@@ -225,11 +301,59 @@ class AndroidPdfView(
             "updateConfig" -> {
                 getIntArg(call, "drawColor")?.let { drawColor = it }
                 getIntArg(call, "highlightColor")?.let { highlightColor = it }
-                getIntArg(call, "underlineColor")?.let { underlineColor = it }
+                result.success(null)
+            }
+    "zoomIn" -> {
+                val prevScale = currentScale
+                currentScale = Math.min(currentScale + 0.5f, maxScale)
+                updateZoom()
+                result.success(null)
+            }
+            "zoomOut" -> {
+                val prevScale = currentScale
+                currentScale = Math.max(currentScale - 0.5f, minScale)
+                if (currentScale == 1.0f) {
+                    translateX = 0f
+                    translateY = 0f
+                }
+                updateZoom()
+                result.success(null)
+            }
+            "setZoom" -> {
+                val scale = getDoubleArg(call, "scale")?.toFloat() ?: 1.0f
+                currentScale = Math.max(minScale, Math.min(scale, maxScale))
+                if (currentScale == 1.0f) {
+                    translateX = 0f
+                    translateY = 0f
+                }
+                updateZoom()
                 result.success(null)
             }
             else -> result.notImplemented()
         }
+    }
+
+    private fun updateZoom() {
+        // Clamp translations to keep view in bounds (simple clamping)
+        val maxTx = 0f
+        val maxTy = 0f
+        val minTx = -(recyclerView.width * currentScale - recyclerView.width)
+        val minTy = -(recyclerView.height * currentScale - recyclerView.height)
+        
+        if (currentScale > 1.0f) {
+            translateX = Math.max(minTx, Math.min(translateX, maxTx))
+            translateY = Math.max(minTy, Math.min(translateY, maxTy))
+        } else {
+            translateX = 0f
+            translateY = 0f
+        }
+
+        recyclerView.scaleX = currentScale
+        recyclerView.scaleY = currentScale
+        recyclerView.translationX = translateX
+        recyclerView.translationY = translateY
+        recyclerView.pivotX = 0f
+        recyclerView.pivotY = 0f
     }
 
     private fun addAnnotation(anno: Annotation) {
@@ -362,47 +486,67 @@ class AndroidPdfView(
                     "highlight" -> {
                         val highlight = PDAnnotationTextMarkup(PDAnnotationTextMarkup.SUB_TYPE_HIGHLIGHT)
                         val rect = PDRectangle()
+                        
+                        val pdfY = pageHeight - y - h
+                        val pdfTopY = pageHeight - y
+                        
                         rect.lowerLeftX = x
-                        rect.lowerLeftY = pageHeight - y - h
+                        rect.lowerLeftY = pdfY
                         rect.upperRightX = x + w
-                        rect.upperRightY = pageHeight - y
+                        rect.upperRightY = pdfTopY
                         highlight.rectangle = rect
                         
-                        val quadPoints = floatArrayOf(
-                            x, pageHeight - y,
-                            x + w, pageHeight - y,
-                            x, pageHeight - y - h,
-                            x + w, pageHeight - y - h
+                        // QuadPoints: BL, BR, TR, TL (Counter-clockwise from BL Z-order fix)
+                        val quadPointsNew = floatArrayOf(
+                            x, pdfY,      // BL
+                            x + w, pdfY,  // BR
+                            x + w, pdfTopY, // TR
+                            x, pdfTopY    // TL
                         )
-                        highlight.quadPoints = quadPoints
+                        highlight.quadPoints = quadPointsNew
                         
                         val r = ((anno.color shr 16) and 0xFF) / 255f
                         val g = ((anno.color shr 8) and 0xFF) / 255f
                         val b = (anno.color and 0xFF) / 255f
                         highlight.color = PDColor(floatArrayOf(r, g, b), PDDeviceRGB.INSTANCE)
+                        
+                        // Set opacity (CA = alpha)
+                        val cosDict = highlight.cosObject
+                        cosDict.setFloat(com.tom_roush.pdfbox.cos.COSName.CA, 0.5f) // 50% opacity
+                        
+                        highlight.isPrinted = true
+                        highlight.isReadOnly = false // Ensure it can be modified if needed
+                        highlight.constructAppearances()
                         page.annotations.add(highlight)
                     }
                     "underline" -> {
                         val underline = PDAnnotationTextMarkup(PDAnnotationTextMarkup.SUB_TYPE_UNDERLINE)
                         val rect = PDRectangle()
+                        val pdfY = pageHeight - y - h
+                        val pdfTopY = pageHeight - y
+                        
                         rect.lowerLeftX = x
-                        rect.lowerLeftY = pageHeight - y - h
+                        rect.lowerLeftY = pdfY
                         rect.upperRightX = x + w
-                        rect.upperRightY = pageHeight - y
+                        rect.upperRightY = pdfTopY
                         underline.rectangle = rect
                         
-                        val quadPoints = floatArrayOf(
-                            x, pageHeight - y,
-                            x + w, pageHeight - y,
-                            x, pageHeight - y - h,
-                            x + w, pageHeight - y - h
+                        // QuadPoints: BL, BR, TR, TL
+                        val quadPointsNew = floatArrayOf(
+                            x, pdfY,      // BL
+                            x + w, pdfY,  // BR
+                            x + w, pdfTopY, // TR
+                            x, pdfTopY    // TL
                         )
-                        underline.quadPoints = quadPoints
+                        underline.quadPoints = quadPointsNew
                         
                         val r = ((anno.color shr 16) and 0xFF) / 255f
                         val g = ((anno.color shr 8) and 0xFF) / 255f
                         val b = (anno.color and 0xFF) / 255f
                         underline.color = PDColor(floatArrayOf(r, g, b), PDDeviceRGB.INSTANCE)
+                        underline.isPrinted = true
+                        underline.isReadOnly = false
+                        underline.constructAppearances()
                         page.annotations.add(underline)
                     }
                     "text" -> {
@@ -467,6 +611,10 @@ class AndroidPdfView(
         }
         private var currentDrawingPath: Path? = null
         private var currentDrawingPoints = mutableListOf<PointF>()
+        
+        private var selectionStartPoint = PointF()
+        private var selectionEndPoint = PointF()
+        private var isSelecting = false
         
         private val drawPaint = Paint().apply {
             strokeWidth = 5f
@@ -545,6 +693,57 @@ class AndroidPdfView(
             }.start()
         }
 
+        private fun snapToTextRange(x1: Float, y1: Float, x2: Float, y2: Float) {
+            Thread {
+                val path = currentPath ?: return@Thread
+                var document: PDDocument? = null
+                try {
+                    document = PDDocument.load(File(path))
+                    val locator = TextRangeLocator(pageIndex, x1, y1, x2, y2)
+                    locator.getTextPositions(document)
+                    
+                    val matches = locator.lineMatches
+                    post {
+                        if (matches.isNotEmpty()) {
+                            for (bounds in matches) {
+                                val h = if (currentTool == "highlight") bounds.height() else 8f
+                                val yOffset = if (currentTool == "highlight") 0f else bounds.height() - 2f
+                                
+                                val anno = Annotation(
+                                    pageIndex, currentTool, 
+                                    bounds.left, bounds.top + yOffset, 
+                                    bounds.width(), if (currentTool == "highlight") bounds.height() else 4f, 
+                                    null, 
+                                    if (currentTool == "highlight") highlightColor else underlineColor
+                                )
+                                addAnnotation(anno)
+                            }
+                        } else {
+                            // Fallback to manual box
+                            val left = Math.min(x1, x2)
+                            val top = Math.min(y1, y2)
+                            val right = Math.max(x1, x2)
+                            val bottom = Math.max(y1, y2)
+                            val w = Math.max(right - left, 50f)
+                            val h = if (currentTool == "highlight") Math.max(bottom - top, 20f) else 6f
+                            
+                            val anno = Annotation(
+                                pageIndex, currentTool, 
+                                left, top, 
+                                w, h, null, 
+                                if (currentTool == "highlight") highlightColor else underlineColor
+                            )
+                            addAnnotation(anno)
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                } finally {
+                    document?.close()
+                }
+            }.start()
+        }
+
         override fun onTouchEvent(event: MotionEvent?): Boolean {
             if (event != null && gestureDetector.onTouchEvent(event)) return true
             if (currentTool == "none") return super.onTouchEvent(event)
@@ -559,6 +758,10 @@ class AndroidPdfView(
                         currentDrawingPath = Path().apply { moveTo(x, y) }
                         currentDrawingPoints.clear()
                         currentDrawingPoints.add(PointF(x * scale, y * scale))
+                    } else if (currentTool == "highlight" || currentTool == "underline") {
+                        selectionStartPoint.set(x * scale, y * scale)
+                        selectionEndPoint.set(x * scale, y * scale)
+                        isSelecting = true
                     }
                     invalidate()
                     return true
@@ -567,8 +770,10 @@ class AndroidPdfView(
                     if (currentTool == "draw") {
                         currentDrawingPath?.lineTo(x, y)
                         currentDrawingPoints.add(PointF(x * scale, y * scale))
-                        invalidate()
+                    } else if (isSelecting) {
+                        selectionEndPoint.set(x * scale, y * scale)
                     }
+                    invalidate()
                     return true
                 }
                 MotionEvent.ACTION_UP -> {
@@ -581,8 +786,11 @@ class AndroidPdfView(
                         }
                         currentDrawingPath = null
                         currentDrawingPoints.clear()
-                        invalidate()
+                    } else if (isSelecting) {
+                        isSelecting = false
+                        snapToTextRange(selectionStartPoint.x, selectionStartPoint.y, selectionEndPoint.x, selectionEndPoint.y)
                     }
+                    invalidate()
                     return true
                 }
             }
@@ -654,6 +862,20 @@ class AndroidPdfView(
                 drawPaint.strokeWidth = 5f // This is in view pixels, looks okay
                 canvas.drawPath(it, drawPaint)
             }
+
+            if (isSelecting) {
+                val p = Paint().apply {
+                    color = if (currentTool == "highlight") highlightColor else underlineColor
+                    alpha = 128
+                    style = Paint.Style.FILL
+                }
+                val invScale = 1f / scale
+                val left = Math.min(selectionStartPoint.x, selectionEndPoint.x) * invScale
+                val top = Math.min(selectionStartPoint.y, selectionEndPoint.y) * invScale
+                val right = Math.max(selectionStartPoint.x, selectionEndPoint.x) * invScale
+                val bottom = Math.max(selectionStartPoint.y, selectionEndPoint.y) * invScale
+                canvas.drawRect(left, top, right, bottom, p)
+            }
         }
     }
 
@@ -694,33 +916,100 @@ class TextLocator(val targetPage: Int, val tapX: Float, val tapY: Float) : com.t
     override fun writeString(text: String?, textPositions: MutableList<com.tom_roush.pdfbox.text.TextPosition>?) {
         if (textPositions == null || textPositions.isEmpty()) return
         
-        // Check if tap is near this run of text
-        var near = false
+        val currentWord = mutableListOf<com.tom_roush.pdfbox.text.TextPosition>()
+        
         for (pos in textPositions) {
-            val distY = Math.abs(pos.yDirAdj - tapY)
-            val distX = if (tapX < pos.xDirAdj) pos.xDirAdj - tapX else if (tapX > pos.xDirAdj + pos.width) tapX - (pos.xDirAdj + pos.width) else 0f
-            
-            if (distY < 15f && distX < 20f) {
-                near = true
-                if (distY < minDist) {
-                    minDist = distY
-                }
-                break
+            val c = pos.unicode
+            // treat space and common punctuation as separators, but keep internal punctuation if needed
+            if (c == " " || c == "\t" || c == "\n" || c == "\r") {
+                 checkWord(currentWord)
+                 currentWord.clear()
+            } else {
+                currentWord.add(pos)
+            }
+        }
+        checkWord(currentWord)
+    }
+
+    private fun checkWord(word: List<com.tom_roush.pdfbox.text.TextPosition>) {
+        if (word.isEmpty()) return
+        
+        var minX = Float.MAX_VALUE
+        var maxX = 0f
+        var minY = Float.MAX_VALUE
+        var maxY = 0f
+        
+        for (p in word) {
+             minX = Math.min(minX, p.xDirAdj)
+             maxX = Math.max(maxX, p.xDirAdj + p.width)
+             minY = Math.min(minY, p.yDirAdj - p.height)
+             maxY = Math.max(maxY, p.yDirAdj)
+        }
+        
+        // Expand target slightly for easier tapping
+        val wordRect = RectF(minX, minY, maxX, maxY)
+        val touchRect = RectF(minX - 20, minY - 15, maxX + 20, maxY + 15)
+        
+        if (touchRect.contains(tapX, tapY)) {
+             val distY = Math.abs(wordRect.centerY() - tapY)
+             val distX = Math.abs(wordRect.centerX() - tapX)
+             val dist = distY + distX // Simple Manhattan distance for preference
+             
+             if (dist < minDist) {
+                 minDist = dist
+                 bestMatch = wordRect
+             }
+        }
+    }
+}
+
+/**
+ * Helper to find text positions within a range on a page.
+ */
+class TextRangeLocator(val targetPage: Int, val x1: Float, val y1: Float, val x2: Float, val y2: Float) : com.tom_roush.pdfbox.text.PDFTextStripper() {
+    val lineMatches = mutableListOf<RectF>()
+    
+    private val selectionRect = RectF(
+        Math.min(x1, x2), Math.min(y1, y2),
+        Math.max(x1, x2), Math.max(y1, y2)
+    )
+
+    init {
+        sortByPosition = true
+        startPage = targetPage + 1
+        endPage = targetPage + 1
+    }
+
+    fun getTextPositions(doc: com.tom_roush.pdfbox.pdmodel.PDDocument) {
+        try {
+            getText(doc)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    override fun writeString(text: String?, textPositions: MutableList<com.tom_roush.pdfbox.text.TextPosition>?) {
+        if (textPositions == null || textPositions.isEmpty()) return
+        
+        var lineMinX = Float.MAX_VALUE
+        var lineMaxX = 0f
+        var lineMinY = Float.MAX_VALUE
+        var lineMaxY = 0f
+        var foundInLine = false
+
+        for (pos in textPositions) {
+            val charRect = RectF(pos.xDirAdj, pos.yDirAdj - pos.height, pos.xDirAdj + pos.width, pos.yDirAdj)
+            if (RectF.intersects(selectionRect, charRect)) {
+                foundInLine = true
+                lineMinX = Math.min(lineMinX, pos.xDirAdj)
+                lineMaxX = Math.max(lineMaxX, pos.xDirAdj + pos.width)
+                lineMinY = Math.min(lineMinY, pos.yDirAdj - pos.height)
+                lineMaxY = Math.max(lineMaxY, pos.yDirAdj)
             }
         }
 
-        if (near) {
-            var minX = Float.MAX_VALUE
-            var maxX = 0f
-            var minY = Float.MAX_VALUE
-            var maxY = 0f
-            for (p in textPositions) {
-                minX = Math.min(minX, p.xDirAdj)
-                maxX = Math.max(maxX, p.xDirAdj + p.width)
-                minY = Math.min(minY, p.yDirAdj - p.height)
-                maxY = Math.max(maxY, p.yDirAdj)
-            }
-            bestMatch = RectF(minX, minY, maxX, maxY) // RectF takes left, top, right, bottom
+        if (foundInLine) {
+            lineMatches.add(RectF(lineMinX, lineMinY, lineMaxX, lineMaxY))
         }
     }
 }

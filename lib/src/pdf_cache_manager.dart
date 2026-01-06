@@ -6,14 +6,20 @@ import 'package:crypto/crypto.dart';
 import 'dart:typed_data';
 
 class PdfCacheManager {
-  static Future<File> preparePdf({String? url, Uint8List? bytes}) async {
+  static Future<File> preparePdf({
+    String? url,
+    Uint8List? bytes,
+    bool useCache = true,
+  }) async {
     final tempDir = await getTemporaryDirectory();
     File file;
 
     if (url != null) {
-      final hash = md5.convert(utf8.encode(url)).toString();
+      final hash = useCache
+          ? md5.convert(utf8.encode(url)).toString()
+          : '${DateTime.now().millisecondsSinceEpoch}_${md5.convert(utf8.encode(url)).toString()}';
       file = File('${tempDir.path}/$hash.pdf');
-      if (!await file.exists()) {
+      if (!useCache || !await file.exists()) {
         final response = await http.get(Uri.parse(url));
         if (response.statusCode == 200) {
           await file.writeAsBytes(response.bodyBytes);

@@ -26,6 +26,9 @@ class PdfViewerConfig {
   /// Whether to allow full-screen mode.
   final bool allowFullScreen;
 
+  /// Whether to show zoom in/out buttons.
+  final bool showZoomButtons;
+
   /// Callback when full-screen is initialized.
   final VoidCallback? onFullScreenInit;
 
@@ -53,6 +56,7 @@ class PdfViewerConfig {
     this.showUndoButton = true,
     this.showRedoButton = true,
     this.allowFullScreen = true,
+    this.showZoomButtons = true,
     this.onFullScreenInit,
     this.toolbarColor,
     this.toolbarPadding = const EdgeInsets.symmetric(horizontal: 8.0),
@@ -70,6 +74,7 @@ class PdfViewerConfig {
     bool? showUndoButton,
     bool? showRedoButton,
     bool? allowFullScreen,
+    bool? showZoomButtons,
     VoidCallback? onFullScreenInit,
     Color? toolbarColor,
     EdgeInsetsGeometry? toolbarPadding,
@@ -86,6 +91,7 @@ class PdfViewerConfig {
       showUndoButton: showUndoButton ?? this.showUndoButton,
       showRedoButton: showRedoButton ?? this.showRedoButton,
       allowFullScreen: allowFullScreen ?? this.allowFullScreen,
+      showZoomButtons: showZoomButtons ?? this.showZoomButtons,
       onFullScreenInit: onFullScreenInit ?? this.onFullScreenInit,
       toolbarColor: toolbarColor ?? this.toolbarColor,
       toolbarPadding: toolbarPadding ?? this.toolbarPadding,

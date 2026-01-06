@@ -103,6 +103,21 @@ class AdvancedPdfViewerController {
     });
   }
 
+  /// Zooms in by a fixed increment.
+  Future<void> zoomIn() async {
+    await _channel?.invokeMethod('zoomIn');
+  }
+
+  /// Zooms out by a fixed increment.
+  Future<void> zoomOut() async {
+    await _channel?.invokeMethod('zoomOut');
+  }
+
+  /// Sets the zoom level to a specific scale.
+  Future<void> setZoom(double scale) async {
+    await _channel?.invokeMethod('setZoom', {'scale': scale});
+  }
+
   /// Disposes of the controller and its resources.
   void dispose() {
     _channel?.setMethodCallHandler(null);
