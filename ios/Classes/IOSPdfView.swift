@@ -28,6 +28,12 @@ class IOSPdfViewFactory: NSObject, FlutterPlatformViewFactory {
 }
 
 class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
+    // Structure to store annotation with its page index for undo/redo
+    private struct AnnotationReference {
+        let annotation: PDFAnnotation
+        let pageIndex: Int
+    }
+    
     private var _view: UIView
     private var pdfView: PDFView
     private var methodChannel: FlutterMethodChannel
@@ -36,6 +42,9 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
 
     private var currentPath: UIBezierPath?
     private var currentAnnotation: PDFAnnotation?
+    
+    private var undoStack: [AnnotationReference] = []
+    private var redoStack: [AnnotationReference] = []
     
     private var drawColor: UIColor = .red
     private var highlightColor: UIColor = UIColor.yellow.withAlphaComponent(0.5)
@@ -55,10 +64,10 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
         super.init()
         
         pdfView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        pdfView.autoScales = true
+        pdfView.autoScales = false  // Disable auto scaling to allow manual zoom control
         pdfView.displayMode = .singlePageContinuous
         pdfView.displayDirection = .vertical
-        pdfView.minScaleFactor = 1.0
+        pdfView.minScaleFactor = 0.5
         pdfView.maxScaleFactor = 5.0
         
         _view.addSubview(pdfView)
@@ -90,6 +99,8 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
                 let data = try Data(contentsOf: url)
                 if let document = PDFDocument(data: data) {
                     pdfView.document = document
+                    // Set initial zoom to 0.5 after document is loaded
+                    pdfView.scaleFactor = 0.5
                 }
                 try FileManager.default.removeItem(at: url)
             } catch {
@@ -98,6 +109,8 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
         } else {
             if let document = PDFDocument(url: url) {
                 pdfView.document = document
+                // Set initial zoom to 0.5 after document is loaded
+                pdfView.scaleFactor = 0.5
             }
         }
     }
@@ -178,6 +191,22 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
         case "zoomOut":
             pdfView.scaleFactor = max(pdfView.scaleFactor - 0.2, pdfView.minScaleFactor)
             result(nil)
+        case "undo":
+            if let ref = undoStack.popLast(),
+               let document = pdfView.document,
+               let page = document.page(at: ref.pageIndex) {
+                page.removeAnnotation(ref.annotation)
+                redoStack.append(ref)
+            }
+            result(nil)
+        case "redo":
+            if let ref = redoStack.popLast(),
+               let document = pdfView.document,
+               let page = document.page(at: ref.pageIndex) {
+                page.addAnnotation(ref.annotation)
+                undoStack.append(ref)
+            }
+            result(nil)
         case "setZoom":
             if let args = call.arguments as? [String: Any],
                let scale = args["scale"] as? Double {
@@ -249,6 +278,13 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
             }
             
         case .ended, .cancelled:
+            if let annotation = currentAnnotation,
+               let page = annotation.page,
+               let document = pdfView.document {
+                let pageIndex = document.index(for: page)
+                undoStack.append(AnnotationReference(annotation: annotation, pageIndex: pageIndex))
+                redoStack.removeAll()
+            }
             currentPath = nil
             currentAnnotation = nil
             
@@ -293,6 +329,12 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
                 let annotation = PDFAnnotation(bounds: lineSelection.bounds(for: page), forType: annotationType, withProperties: nil)
                 annotation.color = color
                 page.addAnnotation(annotation)
+                
+                if let document = pdfView.document {
+                    let pageIndex = document.index(for: page)
+                    undoStack.append(AnnotationReference(annotation: annotation, pageIndex: pageIndex))
+                    redoStack.removeAll()
+                }
             }
         }
     }
@@ -318,6 +360,13 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
             annotation.color = currentTool == "highlight" ? highlightColor : underlineColor
             
             page.addAnnotation(annotation)
+            
+            // Add to undo stack for undo/redo functionality
+            if let document = pdfView.document {
+                let pageIndex = document.index(for: page)
+                undoStack.append(AnnotationReference(annotation: annotation, pageIndex: pageIndex))
+                redoStack.removeAll()
+            }
         }
     }
 
@@ -332,6 +381,13 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
             let annotation = PDFAnnotation(bounds: selection.bounds(for: page), forType: .highlight, withProperties: nil)
             annotation.color = highlightColor
             page.addAnnotation(annotation)
+            
+            // Add to undo stack for undo/redo functionality
+            if let document = pdfView.document {
+                let pageIndex = document.index(for: page)
+                undoStack.append(AnnotationReference(annotation: annotation, pageIndex: pageIndex))
+                redoStack.removeAll()
+            }
         }
     }
 
@@ -340,6 +396,13 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
             let annotation = PDFAnnotation(bounds: selection.bounds(for: page), forType: .underline, withProperties: nil)
             annotation.color = underlineColor
             page.addAnnotation(annotation)
+            
+            // Add to undo stack for undo/redo functionality
+            if let document = pdfView.document {
+                let pageIndex = document.index(for: page)
+                undoStack.append(AnnotationReference(annotation: annotation, pageIndex: pageIndex))
+                redoStack.removeAll()
+            }
         }
     }
 

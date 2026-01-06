@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.1
+
+* **iOS Undo/Redo Fix**: Fixed undo/redo functionality on iOS for all annotation types (drawing, highlights, underlines) by implementing proper annotation reference management with page indices.
+* **iOS Initial Zoom**: Fixed initial zoom level on iOS to properly set to 0.5 (50%) by disabling auto-scaling and setting zoom after document loads.
+
 ## 0.5.0
 
 * **Secure PDF Loading**: Implemented `useCache: false` to support secure PDF loading where the file is downloaded to a temporary location and immediately deleted after opening, ensuring no persistent copy remains on the device.

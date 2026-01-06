@@ -23,7 +23,7 @@ Add the package to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  advanced_pdf_viewer: ^0.1.0
+  advanced_pdf_viewer:
 ```
 
 ### Android Setup
