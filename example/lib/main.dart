@@ -136,9 +136,10 @@ class _MyAppState extends State<MyApp> {
                           controller: _controller,
                           key: ValueKey(_url),
                           config: PdfViewerConfig(
-                            showTextButton: true,
+                            showTextButton: false,
+                            drawColor: Colors.red,
                             allowFullScreen: false,
-
+                            showZoomButtons: false,
                             toolbarColor: Colors.white,
                             onFullScreenInit: () {
                               log('full screen initialized');
@@ -154,8 +155,11 @@ class _MyAppState extends State<MyApp> {
 
                           key: ValueKey(_bytes.hashCode),
                           config: PdfViewerConfig(
-                            showTextButton: true,
-                            drawColor: Colors.white,
+                            showTextButton: false,
+                            drawColor: Colors.red,
+                            allowFullScreen: false,
+                            showZoomButtons: false,
+
                             onFullScreenInit: () {
                               print("Entered full screen!");
                             },

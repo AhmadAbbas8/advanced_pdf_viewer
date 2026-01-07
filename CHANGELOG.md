@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.6.0
+
+* **Fix Android Bug**: Fix Crashed on Android when render pdf
 ## 0.5.1
 
 * **iOS Undo/Redo Fix**: Fixed undo/redo functionality on iOS for all annotation types (drawing, highlights, underlines) by implementing proper annotation reference management with page indices.

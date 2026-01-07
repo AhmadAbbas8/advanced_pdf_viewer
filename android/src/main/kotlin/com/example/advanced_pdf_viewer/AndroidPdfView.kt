@@ -63,13 +63,15 @@ class AndroidPdfView(
     private val layoutManager = LockableLinearLayoutManager(context)
     private val methodChannel: MethodChannel = MethodChannel(messenger, "advanced_pdf_viewer_$id")
     
+    private val pdfRendererLock = Any() // Lock for PdfRenderer synchronization
     private var pdfRenderer: PdfRenderer? = null
     private var parcelFileDescriptor: ParcelFileDescriptor? = null
     private var currentPath: String? = null
     private var currentTool: String = "none"
     private var isTempFile: Boolean = false
     
-    private val renderExecutor = Executors.newFixedThreadPool(4)
+    // Reduced thread pool size to prevent OOM on lower end devices
+    private val renderExecutor = Executors.newFixedThreadPool(2)
     private val mainHandler = Handler(Looper.getMainLooper())
     
     private var drawColor: Int = Color.RED
@@ -121,13 +123,14 @@ class AndroidPdfView(
     init {
         try {
             PDFBoxResourceLoader.init(context)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            System.err.println("PDF View Critical Error initializing PDFBox: ${e.message}")
             e.printStackTrace()
         }
         
         recyclerView.layoutManager = layoutManager
         recyclerView.adapter = PdfAdapter()
-        recyclerView.setItemViewCacheSize(5)
+        recyclerView.setItemViewCacheSize(3) // Reduced cache size
         recyclerView.setHasFixedSize(true)
         
         recyclerView.setOnTouchListener { _, event ->
@@ -162,16 +165,21 @@ class AndroidPdfView(
     private fun loadPdf(path: String) {
         currentPath = path
         val file = File(path)
+        
+        if (!file.exists() || file.length() == 0L) {
+            System.err.println("PDF View Error: File does not exist or is empty: $path")
+            return
+        }
+
         try {
+            // REMOVED file.delete() to prevent issues with ParcelFileDescriptor on some devices/OS versions
+            
             parcelFileDescriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-            
-            if (isTempFile && file.exists()) {
-                file.delete()
-            }
-            
             pdfRenderer = PdfRenderer(parcelFileDescriptor!!)
             recyclerView.adapter?.notifyDataSetChanged()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // Catch RuntimeException, SecurityException, and IOException
+            System.err.println("PDF View Critical Error initializing PdfRenderer: ${e.message}")
             e.printStackTrace()
         }
     }
@@ -193,9 +201,18 @@ class AndroidPdfView(
             
             val imageView = holder.itemView as AnnotationImageView
             
-            val page = renderer.openPage(position)
-            val w = page.width
-            val h = page.height
+            var w = 0
+            var h = 0
+            try {
+                synchronized(pdfRendererLock) {
+                    val page = renderer.openPage(position)
+                    w = page.width
+                    h = page.height
+                    page.close()
+                }
+            } catch (e: Exception) {
+                return
+            }
             
             imageView.updatePageInfo(position, w, h)
             
@@ -207,16 +224,40 @@ class AndroidPdfView(
                 renderExecutor.execute {
                     try {
                         val renderer = pdfRenderer ?: return@execute
-                        val page = renderer.openPage(position)
-                        val bitmap = Bitmap.createBitmap(w * 2, h * 2, Bitmap.Config.ARGB_8888)
-                        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                        page.close()
+                        // Double check renderer still exists/open
                         
-                        bitmapCache.put(position, bitmap)
-                        
-                        mainHandler.post {
-                            if (imageView.pageIndex == position) {
-                                imageView.setImageBitmap(bitmap)
+                        // Synchronize on lock to ensure no parallel page access
+                        synchronized(pdfRendererLock) {
+                            val page = renderer.openPage(position)
+                            
+                            // Use ARGB_8888 as RGB_565 is not supported by PdfRenderer
+                            // Maintain 1.5x scale to keep memory usage lower than original 2.0x
+                            var bitmap: Bitmap? = null
+                            try {
+                                 val scale = 1.5f
+                                 bitmap = Bitmap.createBitmap((w * scale).toInt(), (h * scale).toInt(), Bitmap.Config.ARGB_8888)
+                                 page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            } catch (e: OutOfMemoryError) {
+                                // Fallback to 1.0 scale if still OOM
+                                try {
+                                    val scale = 1.0f
+                                    bitmap = Bitmap.createBitmap((w * scale).toInt(), (h * scale).toInt(), Bitmap.Config.ARGB_8888)
+                                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                                } catch (e2: OutOfMemoryError) {
+                                    // Failed to allocate even low res
+                                    e2.printStackTrace()
+                                }
+                            }
+                            
+                            page.close()
+                            
+                            if (bitmap != null) {
+                                bitmapCache.put(position, bitmap)
+                                mainHandler.post {
+                                    if (imageView.pageIndex == position) {
+                                        imageView.setImageBitmap(bitmap)
+                                    }
+                                }
                             }
                         }
                     } catch (e: Exception) {

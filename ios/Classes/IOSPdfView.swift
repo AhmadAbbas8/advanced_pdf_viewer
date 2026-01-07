@@ -295,20 +295,41 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
 
     private var selectionStartPoint: CGPoint?
     
+    // Throttle UI updates for selection to improve smoothness and prevent crashes
+    private var lastSelectionUpdateTime: TimeInterval = 0
+    private let selectionUpdateInterval: TimeInterval = 0.016 // ~60fps cap
+    
     private func handleSelectionPan(_ gesture: UIPanGestureRecognizer) {
         let location = gesture.location(in: pdfView)
+        // Safety check for valid page
         guard let page = pdfView.page(for: location, nearest: true) else { return }
         let pagePoint = pdfView.convert(location, to: page)
         
         switch gesture.state {
         case .began:
             selectionStartPoint = pagePoint
+            lastSelectionUpdateTime = Date().timeIntervalSince1970
         case .changed:
-            if let start = selectionStartPoint {
-                let selection = page.selection(from: start, to: pagePoint)
-                pdfView.currentSelection = selection
+            let currentTime = Date().timeIntervalSince1970
+            if currentTime - lastSelectionUpdateTime > selectionUpdateInterval {
+                if let start = selectionStartPoint {
+                    // Wrap in try-catch logic if possible, or just strict null checks
+                    let selection = page.selection(from: start, to: pagePoint)
+                    if selection != nil {
+                        pdfView.currentSelection = selection
+                    }
+                }
+                lastSelectionUpdateTime = currentTime
             }
         case .ended, .cancelled:
+             // Final update
+             if let start = selectionStartPoint {
+                let selection = page.selection(from: start, to: pagePoint)
+                if selection != nil {
+                    pdfView.currentSelection = selection
+                }
+            }
+            
             if let selection = pdfView.currentSelection {
                 addAnnotationsForSelection(selection)
             }
