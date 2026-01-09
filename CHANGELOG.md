@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.1
+* **Page Counter**: Added `enablePageNumber` to `PdfViewerConfig` to show page numbers on Android (below page) and iOS (on page footer).
+* **iOS Security**: Disabled text selection actions (Copy, Paste, Look Up, Share, etc.) for better content security.
+* **iOS UI**: Fixed reversed page numbering on iOS.
+
 ## 0.6.0
 
 * **Fix Android Bug**: Fix Crashed on Android when render pdf

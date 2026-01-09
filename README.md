@@ -15,6 +15,8 @@ A high-performance, feature-rich PDF viewer for Flutter with advanced annotation
 - 🧲 **Snap-to-Text**: Highlights and underlines automatically detect and snap to the nearest text line for perfect alignment.
 - 💾 **Save & Persistence**: Save modified PDFs with your annotations baked in. Supporting mixed language (Arabic/English) text embedding.
 - 🔒 **Secure Storage**: Option to load PDFs without caching or saving to local storage (Stream-to-Temp-Transfer).
+- 🔢 **Page Counter**: Optional page numbering support on both Android and iOS.
+- 🛡️ **Enhanced Security**: Disables copying, sharing, and other text interactions on iOS to protect content.
 - 🛠️ **Customizable Toolbar**: Easy-to-use toolbar with Undo/Redo support and full-screen mode.
 
 ## Getting started
@@ -91,6 +93,7 @@ The `PdfViewerConfig` class allows you to customize the behavior and appearance 
 | `highlightColor` | Color used for text highlighting | `Colors.yellow` |
 | `showUndoButton` | Enable/Disable the undo button | `true` |
 | `allowFullScreen` | Show full screen toggle | `true` |
+| `enablePageNumber` | Show page number indicator | `false` |
 
 ## License
 
