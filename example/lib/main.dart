@@ -143,6 +143,7 @@ class _MyAppState extends State<MyApp> {
                             allowFullScreen: false,
                             showZoomButtons: false,
                             toolbarColor: Colors.white,
+                            enablePageNumber: true,
                             onFullScreenInit: () {
                               log('full screen initialized');
                             },
@@ -160,7 +161,7 @@ class _MyAppState extends State<MyApp> {
                             showTextButton: false,
                             drawColor: Colors.red,
                             allowFullScreen: false,
-                            showZoomButtons: false,
+                            showZoomButtons: false, enablePageNumber: true,
 
                             onFullScreenInit: () {
                               print("Entered full screen!");

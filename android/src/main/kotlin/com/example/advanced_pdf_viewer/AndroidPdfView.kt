@@ -17,9 +17,11 @@ import android.view.GestureDetector
 import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewGroup
+import android.view.Gravity
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.ImageView
+import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import io.flutter.plugin.common.BinaryMessenger
@@ -77,6 +79,7 @@ class AndroidPdfView(
     private var drawColor: Int = Color.RED
     private var highlightColor: Int = Color.YELLOW
     private var underlineColor: Int = Color.BLUE
+    private var enablePageNumber: Boolean = false
     
     private val undoStack = Stack<Annotation>()
     private val redoStack = Stack<Annotation>()
@@ -186,20 +189,47 @@ class AndroidPdfView(
 
     inner class PdfAdapter : RecyclerView.Adapter<PdfViewHolder>() {
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PdfViewHolder {
-            val view = AnnotationImageView(context, 0, 1, 1)
-            view.layoutParams = RecyclerView.LayoutParams(
+            val container = LinearLayout(context)
+            container.orientation = LinearLayout.VERTICAL
+            container.layoutParams = RecyclerView.LayoutParams(
                 RecyclerView.LayoutParams.MATCH_PARENT,
                 RecyclerView.LayoutParams.WRAP_CONTENT
             )
-            view.adjustViewBounds = true
-            return PdfViewHolder(view)
+            container.gravity = Gravity.CENTER_HORIZONTAL
+
+            val pdfView = AnnotationImageView(context, 0, 1, 1)
+            pdfView.layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            pdfView.adjustViewBounds = true
+            
+            val pageNumView = TextView(context)
+            pageNumView.layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            pageNumView.gravity = Gravity.CENTER
+            pageNumView.setTextColor(Color.BLACK)
+            pageNumView.textSize = 12f
+            pageNumView.setPadding(0, 8, 0, 16)
+            
+            container.addView(pdfView)
+            container.addView(pageNumView)
+            
+            return PdfViewHolder(container)
         }
 
         override fun onBindViewHolder(holder: PdfViewHolder, position: Int) {
             val renderer = pdfRenderer ?: return
             if (position < 0 || position >= renderer.pageCount) return
             
-            val imageView = holder.itemView as AnnotationImageView
+            val container = holder.itemView as LinearLayout
+            val imageView = container.getChildAt(0) as AnnotationImageView
+            val pageNumView = container.getChildAt(1) as TextView
+            
+            pageNumView.text = "${position + 1}"
+            pageNumView.visibility = if (enablePageNumber) View.VISIBLE else View.GONE
             
             var w = 0
             var h = 0
@@ -342,6 +372,11 @@ class AndroidPdfView(
             "updateConfig" -> {
                 getIntArg(call, "drawColor")?.let { drawColor = it }
                 getIntArg(call, "highlightColor")?.let { highlightColor = it }
+                getIntArg(call, "underlineColor")?.let { underlineColor = it }
+                call.argument<Boolean>("enablePageNumber")?.let { 
+                    enablePageNumber = it 
+                    refreshAllViews()
+                }
                 result.success(null)
             }
             "zoomIn" -> {

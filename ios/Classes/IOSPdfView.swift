@@ -122,6 +122,7 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
     private var drawColor: UIColor = .red
     private var highlightColor: UIColor = UIColor.yellow.withAlphaComponent(0.5)
     private var underlineColor: UIColor = .blue
+    private var enablePageNumber: Bool = false
 
     init(
         frame: CGRect,
@@ -181,22 +182,36 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
         if isTempFile {
             do {
                 let data = try Data(contentsOf: url)
-                if let document = PDFDocument(data: data) {
+                if let document = NumberedPDFDocument(data: data) {
                     pdfView.document = document
                     // Set initial zoom to 0.5 after document is loaded
                     pdfView.scaleFactor = 0.5
+                    updatePageNumbersState()
                 }
                 try FileManager.default.removeItem(at: url)
             } catch {
                 print("Error loading temp PDF: \(error)")
             }
         } else {
-            if let document = PDFDocument(url: url) {
+            if let document = NumberedPDFDocument(url: url) {
                 pdfView.document = document
                 // Set initial zoom to 0.5 after document is loaded
                 pdfView.scaleFactor = 0.5
+                updatePageNumbersState()
             }
         }
+    }
+
+    private func updatePageNumbersState() {
+        guard let document = pdfView.document else { return }
+        for i in 0..<document.pageCount {
+            if let page = document.page(at: i) as? NumberedPDFPage {
+                page.showNumber = enablePageNumber
+            }
+        }
+        // Force redraw by toggling display mode slightly or just relying on next render
+        // A layout change forces rewrite
+        pdfView.layoutDocumentView()
     }
 
     func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -260,6 +275,10 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
                 if let draw = args["drawColor"] as? Int { drawColor = UIColor(argb: draw) }
                 if let highlight = args["highlightColor"] as? Int { highlightColor = UIColor(argb: highlight) }
                 if let underline = args["underlineColor"] as? Int { underlineColor = UIColor(argb: underline) }
+                if let pageNum = args["enablePageNumber"] as? Bool {
+                    enablePageNumber = pageNum
+                    updatePageNumbersState()
+                }
                 result(nil)
             }
         case "setScrollLocked":
@@ -616,5 +635,55 @@ extension UIColor {
             blue: CGFloat(argb & 0xFF) / 255.0,
             alpha: CGFloat((argb >> 24) & 0xFF) / 255.0
         )
+    }
+}
+
+class NumberedPDFDocument: PDFDocument {
+    override var pageClass: AnyClass {
+        return NumberedPDFPage.self
+    }
+}
+
+class NumberedPDFPage: PDFPage {
+    // Static config is risky for multiple views, but simple for now. 
+    // Ideally we'd set this per page instance.
+    var showNumber: Bool = false
+    
+    override func draw(with box: PDFDisplayBox, to context: CGContext) {
+        super.draw(with: box, to: context)
+        
+        if showNumber {
+            UIGraphicsPushContext(context)
+            context.saveGState()
+            
+            let pageBounds = self.bounds(for: box)
+            
+            // Flip the coordinate system to match UIKit's expectation
+            context.translateBy(x: 0.0, y: pageBounds.size.height)
+            context.scaleBy(x: 1.0, y: -1.0)
+            
+            // Setup text
+            let text = "\(self.label ?? String(describing: (self.document?.index(for: self) ?? 0) + 1))"
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 12),
+                .foregroundColor: UIColor.black
+            ]
+            let attributedString = NSAttributedString(string: text, attributes: attributes)
+            let textSize = attributedString.size()
+            
+            // Draw at bottom center
+            // After flip, (0,0) is Top-Left. 
+            // We want bottom, so y should be (height - padding)
+            // But wait, if we flipped the whole page, we are drawing in "UIKit coordinates".
+            // Top-left is 0,0. Bottom-left is 0, height.
+            let x = (pageBounds.width - textSize.width) / 2
+            let y = pageBounds.height - 20.0 // 20 points from bottom (top in flipped coords)
+            
+            // Draw
+            attributedString.draw(at: CGPoint(x: x, y: y))
+            
+            context.restoreGState()
+            UIGraphicsPopContext()
+        }
     }
 }

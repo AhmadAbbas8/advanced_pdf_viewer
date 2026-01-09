@@ -81,6 +81,7 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
         drawColor: widget.config.drawColor,
         highlightColor: widget.config.highlightColor,
         underlineColor: widget.config.underlineColor,
+        enablePageNumber: widget.config.enablePageNumber,
       );
     }
   }
@@ -305,6 +306,7 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
       drawColor: widget.config.drawColor,
       highlightColor: widget.config.highlightColor,
       underlineColor: widget.config.underlineColor,
+      enablePageNumber: widget.config.enablePageNumber,
     );
 
     if (_currentTool != PdfAnnotationTool.none) {

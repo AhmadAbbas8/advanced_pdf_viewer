@@ -47,6 +47,9 @@ class PdfViewerConfig {
   /// Color for underlines.
   final Color underlineColor;
 
+  /// Whether to show the page number identifier.
+  final bool enablePageNumber;
+
   const PdfViewerConfig({
     this.showDrawButton = true,
     this.showHighlightButton = true,
@@ -63,6 +66,7 @@ class PdfViewerConfig {
     this.drawColor = Colors.red,
     this.highlightColor = const Color(0x80FFFF00), // Semi-transparent yellow
     this.underlineColor = Colors.blue,
+    this.enablePageNumber = false,
   });
 
   PdfViewerConfig copyWith({
@@ -81,6 +85,7 @@ class PdfViewerConfig {
     Color? drawColor,
     Color? highlightColor,
     Color? underlineColor,
+    bool? enablePageNumber,
   }) {
     return PdfViewerConfig(
       showDrawButton: showDrawButton ?? this.showDrawButton,
@@ -98,6 +103,7 @@ class PdfViewerConfig {
       drawColor: drawColor ?? this.drawColor,
       highlightColor: highlightColor ?? this.highlightColor,
       underlineColor: underlineColor ?? this.underlineColor,
+      enablePageNumber: enablePageNumber ?? this.enablePageNumber,
     );
   }
 }
