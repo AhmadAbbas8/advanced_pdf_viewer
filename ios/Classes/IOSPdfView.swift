@@ -2,6 +2,71 @@ import Flutter
 import UIKit
 import PDFKit
 
+class SafePDFView: PDFView {
+    var disableInteraction: Bool = false {
+        didSet {
+            // Standard userInteractionEnabled toggle
+            isUserInteractionEnabled = !disableInteraction
+            
+            // Critical: Resign first responder to detach from system text input managers
+            if disableInteraction {
+                self.resignFirstResponder()
+                self.clearSelection()
+            }
+        }
+    }
+    
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        // Absolute block of all touches
+        if disableInteraction {
+            return nil
+        }
+        return super.hitTest(point, with: event)
+    }
+    
+    // Prevent becoming first responder (text input target) when disabled
+    override var canBecomeFirstResponder: Bool {
+        return !disableInteraction
+    }
+
+    override func buildMenu(with builder: UIMenuBuilder) {
+        if #available(iOS 13.0, *) {
+            builder.remove(menu: .lookup)
+            builder.remove(menu: .share)
+            // Remove other potentially interfering menus
+            builder.remove(menu: .replace) 
+            builder.remove(menu: .standardEdit) 
+        }
+        super.buildMenu(with: builder)
+    }
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        let actionString = NSStringFromSelector(action)
+        
+        // Define exact selectors to block
+        let blockedSelectors = [
+            "copy:", "paste:", "cut:", "selectAll:", 
+            "_define:", "_translate:", "_share:", "_accessibilitySpeak:", "_accessibilitySpeakLanguageSelection:", 
+            "_promptForReplace:", "_transliterateChinese:", "lookup:", "searchWeb:", "share:"
+        ]
+        
+        if blockedSelectors.contains(actionString) {
+            return false
+        }
+        
+        // Block broad categories by string matching
+        if actionString.contains("Share") || 
+           actionString.contains("Define") || 
+           actionString.contains("Translate") || 
+           actionString.contains("Search") ||
+           actionString.contains("Lookup") {
+            return false
+        }
+        
+        return super.canPerformAction(action, withSender: sender)
+    }
+}
+
 class IOSPdfViewFactory: NSObject, FlutterPlatformViewFactory {
     private var messenger: FlutterBinaryMessenger
 
@@ -35,9 +100,17 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
     }
     
     private var _view: UIView
-    private var pdfView: PDFView
+    private var pdfView: SafePDFView
+    private var overlayView: UIView!
     private var methodChannel: FlutterMethodChannel
-    private var currentTool: String = "none"
+    
+    // Observer property to toggle overlay interaction
+    private var currentTool: String = "none" {
+        didSet {
+            updateOverlayInteraction()
+        }
+    }
+    
     private var isTempFile: Bool = false
 
     private var currentPath: UIBezierPath?
@@ -57,7 +130,7 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
         binaryMessenger messenger: FlutterBinaryMessenger
     ) {
         _view = UIView(frame: frame)
-        pdfView = PDFView(frame: frame)
+        pdfView = SafePDFView(frame: frame)
         
         methodChannel = FlutterMethodChannel(name: "advanced_pdf_viewer_\(viewId)", binaryMessenger: messenger)
         
@@ -70,7 +143,18 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
         pdfView.minScaleFactor = 0.5
         pdfView.maxScaleFactor = 5.0
         
+        pdfView.minScaleFactor = 0.5
+        pdfView.maxScaleFactor = 5.0
+        
         _view.addSubview(pdfView)
+        
+        // Initialize transparent overlay view
+        overlayView = UIView(frame: frame)
+        overlayView.backgroundColor = .clear
+        overlayView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        overlayView.isUserInteractionEnabled = false // Disabled by default until tool is selected
+        
+        _view.addSubview(overlayView)
         
         if let argsDict = args as? [String: Any] {
            if let tempFile = argsDict["isTempFile"] as? Bool {
@@ -120,6 +204,7 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
         case "setDrawingMode":
             if let args = call.arguments as? [String: Any],
                let tool = args["tool"] as? String {
+                // This triggers the didSet observer to update overlay interaction
                 self.currentTool = tool
                 result(nil)
             } else {
@@ -231,12 +316,28 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
     }
 
     private func setupGestureRecognizers() {
+        // Attach gestures to overlayView instead of pdfView
+        // This prevents the native PDFView from handling these touches when overlay is active
         let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         panGesture.delegate = self
-        pdfView.addGestureRecognizer(panGesture)
+        overlayView.addGestureRecognizer(panGesture)
         
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
-        pdfView.addGestureRecognizer(tapGesture)
+        overlayView.addGestureRecognizer(tapGesture)
+    }
+    
+    private func updateOverlayInteraction() {
+        // Enable overlay interaction only when a tool is selected
+        // This blocks touches from reaching the underlying PDFView
+        overlayView.isUserInteractionEnabled = currentTool != "none"
+        
+        // Critical Fix: Explicitly disable PDFView interaction via custom hitTest override
+        // This ensures NO touches reach it, preventing the native crash.
+        pdfView.disableInteraction = currentTool != "none"
+        
+        if currentTool != "none" {
+            _view.bringSubviewToFront(overlayView)
+        }
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
@@ -309,32 +410,48 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
         case .began:
             selectionStartPoint = pagePoint
             lastSelectionUpdateTime = Date().timeIntervalSince1970
+            
         case .changed:
             let currentTime = Date().timeIntervalSince1970
             if currentTime - lastSelectionUpdateTime > selectionUpdateInterval {
                 if let start = selectionStartPoint {
-                    // Wrap in try-catch logic if possible, or just strict null checks
-                    let selection = page.selection(from: start, to: pagePoint)
-                    if selection != nil {
-                        pdfView.currentSelection = selection
+                    do {
+                        DispatchQueue.main.async { [weak self] in
+                            if let selection = page.selection(from: start, to: pagePoint),
+                               let selectionString = selection.string, !selectionString.isEmpty {
+                                self?.pdfView.currentSelection = selection
+                            }
+                        }
+                    } catch {
+                        print("Selection error during pan: \(error)")
                     }
                 }
                 lastSelectionUpdateTime = currentTime
             }
+            
         case .ended, .cancelled:
-             // Final update
-             if let start = selectionStartPoint {
-                let selection = page.selection(from: start, to: pagePoint)
-                if selection != nil {
-                    pdfView.currentSelection = selection
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                
+                do {
+                    if let start = self.selectionStartPoint {
+                        if let selection = page.selection(from: start, to: pagePoint),
+                           let selectionString = selection.string, !selectionString.isEmpty {
+                            self.pdfView.currentSelection = selection
+                        }
+                    }
+                    
+                    if let selection = self.pdfView.currentSelection {
+                        self.addAnnotationsForSelection(selection)
+                    }
+                } catch {
+                    print("Selection error at end: \(error)")
                 }
+                
+                self.pdfView.currentSelection = nil
+                self.selectionStartPoint = nil
             }
             
-            if let selection = pdfView.currentSelection {
-                addAnnotationsForSelection(selection)
-            }
-            pdfView.currentSelection = nil
-            selectionStartPoint = nil
         default:
             break
         }
@@ -344,18 +461,65 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
         let annotationType: PDFAnnotationSubtype = currentTool == "highlight" ? .highlight : .underline
         let color = currentTool == "highlight" ? highlightColor : underlineColor
         
-        for page in selection.pages {
-            let boundsList = selection.selectionsByLine().filter { $0.pages.contains(page) }
-            for lineSelection in boundsList {
-                let annotation = PDFAnnotation(bounds: lineSelection.bounds(for: page), forType: annotationType, withProperties: nil)
-                annotation.color = color
-                page.addAnnotation(annotation)
-                
-                if let document = pdfView.document {
-                    let pageIndex = document.index(for: page)
-                    undoStack.append(AnnotationReference(annotation: annotation, pageIndex: pageIndex))
-                    redoStack.removeAll()
+        guard !selection.pages.isEmpty else { return }
+        
+        // Dispatch to background thread to avoid blocking UI
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            
+            do {
+                for page in selection.pages {
+                    // Use the selection bounds directly instead of selectionsByLine
+                    let bounds = selection.bounds(for: page)
+                    
+                    // Aggressive safety checks
+                    guard !bounds.isEmpty, !bounds.isNull else {
+                        continue
+                    }
+                    
+                    // Check for NaN or infinite values
+                    guard !bounds.origin.x.isNaN, !bounds.origin.y.isNaN,
+                          !bounds.size.width.isNaN, !bounds.size.height.isNaN else {
+                        continue
+                    }
+                    
+                    guard !bounds.origin.x.isInfinite, !bounds.origin.y.isInfinite,
+                          !bounds.size.width.isInfinite, !bounds.size.height.isInfinite else {
+                        continue
+                    }
+                    
+                    // Skip if bounds are negative or zero
+                    guard bounds.width > 0, bounds.height > 0 else {
+                        continue
+                    }
+                    
+                    // Clamp bounds to reasonable values
+                    guard bounds.width < 5000, bounds.height < 5000 else {
+                        continue
+                    }
+                    
+                    // Normalize the bounds
+                    let normalizedBounds = bounds.standardized
+                    
+                    // Try-catch for annotation creation - on main thread
+                    DispatchQueue.main.async {
+                        do {
+                            let annotation = PDFAnnotation(bounds: normalizedBounds, forType: annotationType, withProperties: nil)
+                            annotation.color = color
+                            page.addAnnotation(annotation)
+                            
+                            if let document = self.pdfView.document {
+                                let pageIndex = document.index(for: page)
+                                self.undoStack.append(AnnotationReference(annotation: annotation, pageIndex: pageIndex))
+                                self.redoStack.removeAll()
+                            }
+                        } catch {
+                            print("Failed to create annotation: \(error)")
+                        }
+                    }
                 }
+            } catch {
+                print("Error in addAnnotationsForSelection: \(error)")
             }
         }
     }
@@ -376,18 +540,7 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
         
         // Try to find text selection at point
         if let selection = page.selectionForLine(at: pagePoint) {
-            let annotationType: PDFAnnotationSubtype = currentTool == "highlight" ? .highlight : .underline
-            let annotation = PDFAnnotation(bounds: selection.bounds(for: page), forType: annotationType, withProperties: nil)
-            annotation.color = currentTool == "highlight" ? highlightColor : underlineColor
-            
-            page.addAnnotation(annotation)
-            
-            // Add to undo stack for undo/redo functionality
-            if let document = pdfView.document {
-                let pageIndex = document.index(for: page)
-                undoStack.append(AnnotationReference(annotation: annotation, pageIndex: pageIndex))
-                redoStack.removeAll()
-            }
+           addAnnotationsForSelection(selection)
         }
     }
 

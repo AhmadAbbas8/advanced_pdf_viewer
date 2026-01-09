@@ -32,8 +32,10 @@ class _MyAppState extends State<MyApp> {
   Future<void> _loadNetworkPdf() async {
     setState(() {
       _bytes = null;
-      _url =
-          'https://easy.easy-stream.net/pdfs/5bbc9de8-2085-4874-bdb1-005533269a5c.pdf';
+      // _url = 'https://easy.easy-stream.net/pdfs/d3982bb2-9eec-4167-9194-dfea5082022e.pdf';
+      // _url ='https://easy.easy-stream.net/pdfs/7070626f-9557-4331-b152-faf7cf76a0fc.pdf';
+      _url = 'https://easy.easy-stream.net/pdfs/bookley_admin_report_v0.pdf';
+      // _url= 'https://easy.easy-stream.net/pdfs/365c6a47-08ab-49a1-80c8-997f2a0bf897.pdf';
     });
   }
 
