@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.2
+* **Android Crash Fix**: Fixed critical `OutOfMemoryError` and crashes when interacting with or saving large PDF files (>10MB).
+* **Memory Optimization**: Implemented strict single-document memory strategy and aggressive resource cleanup for Android saves.
+* **Performance**: Optimized text snapping and drawing on Android using background serialization to prevent UI lag.
+
 ## 0.6.1
 * **Page Counter**: Added `enablePageNumber` to `PdfViewerConfig` to show page numbers on Android (below page) and iOS (on page footer).
 * **iOS Security**: Disabled text selection actions (Copy, Paste, Look Up, Share, etc.) for better content security.

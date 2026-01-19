@@ -1,6 +1,6 @@
 name: advanced_pdf_viewer
 description: A high-performance PDF viewer for Flutter with support for Arabic text rendering, RTL reordering, and advanced annotations (draw, text, highlight, underline) with snap-to-text.
-version: 0.6.1
+version: 0.6.2
 homepage: https://github.com/AhmadAbbas8/advanced_pdf_viewer
 repository: https://github.com/AhmadAbbas8/advanced_pdf_viewer
 
