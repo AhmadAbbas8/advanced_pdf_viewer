@@ -49,6 +49,8 @@ import com.tom_roush.pdfbox.text.PDFTextStripperByArea
 import com.tom_roush.pdfbox.pdmodel.graphics.state.PDExtendedGraphicsState
 import com.tom_roush.pdfbox.pdmodel.graphics.blend.BlendMode
 
+import com.tom_roush.pdfbox.io.MemoryUsageSetting
+
 class AndroidPdfView(
     private val context: Context,
     private val id: Int,
@@ -66,14 +68,22 @@ class AndroidPdfView(
     private val methodChannel: MethodChannel = MethodChannel(messenger, "advanced_pdf_viewer_$id")
     
     private val pdfRendererLock = Any() // Lock for PdfRenderer synchronization
+    private val pdfBoxLock = Any() // Lock for PDFBox interactionDocument
     private var pdfRenderer: PdfRenderer? = null
     private var parcelFileDescriptor: ParcelFileDescriptor? = null
+    
+    // Cached PDDocument for interactions (snapping) to prevent repeated loading/OOM
+    // This is opened in loadPdf and closed in dispose
+    private var interactionDocument: PDDocument? = null 
+    
     private var currentPath: String? = null
     private var currentTool: String = "none"
     private var isTempFile: Boolean = false
     
     // Reduced thread pool size to prevent OOM on lower end devices
     private val renderExecutor = Executors.newFixedThreadPool(2)
+    // Single thread for interactions to prevent race conditions and parallel heavy loads
+    private val interactionExecutor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     
     private var drawColor: Int = Color.RED
@@ -161,6 +171,16 @@ class AndroidPdfView(
     override fun dispose() {
         pdfRenderer?.close()
         parcelFileDescriptor?.close()
+        
+        // Close interaction document
+        interactionExecutor.execute {
+            try {
+                interactionDocument?.close()
+                interactionDocument = null
+            } catch (e: Exception) {}
+        }
+        interactionExecutor.shutdown()
+        
         bitmapCache.evictAll()
         renderExecutor.shutdown()
     }
@@ -180,6 +200,20 @@ class AndroidPdfView(
             parcelFileDescriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
             pdfRenderer = PdfRenderer(parcelFileDescriptor!!)
             recyclerView.adapter?.notifyDataSetChanged()
+            
+            // Initialize the interaction document in background
+            interactionExecutor.execute {
+                try {
+                     synchronized(pdfBoxLock) {
+                        if (interactionDocument != null) {
+                            try { interactionDocument?.close() } catch(e: Exception){}
+                        }
+                        interactionDocument = PDDocument.load(file, MemoryUsageSetting.setupTempFileOnly())
+                     }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         } catch (e: Throwable) {
             // Catch RuntimeException, SecurityException, and IOException
             System.err.println("PDF View Critical Error initializing PdfRenderer: ${e.message}")
@@ -512,126 +546,160 @@ class AndroidPdfView(
     private fun savePdf(result: MethodChannel.Result) {
         val path = currentPath ?: return result.error("NO_PATH", "No PDF loaded", null)
         
-        Thread {
-            var document: PDDocument? = null
+        interactionExecutor.execute {
+            var tempFile: File? = null
+
             try {
-                document = PDDocument.load(File(path))
-                var font: PDFont? = null
+                // 1. FREE MEMORY: Close interaction document and clear caches
+                synchronized(pdfBoxLock) {
+                    try {
+                        interactionDocument?.close()
+                        interactionDocument = null
+                    } catch (e: Exception) {}
+                }
+                
+                runCatching {
+                    bitmapCache.evictAll()
+                    System.gc()
+                    Thread.sleep(100) 
+                }
+
+                // 2. LOAD & SAVE: Load fresh document purely for saving
+                // Use temp file for buffering instead of RAM
+                val document = PDDocument.load(File(path), MemoryUsageSetting.setupTempFileOnly())
                 
                 try {
-                    val inputStream: InputStream = context.assets.open("flutter_assets/assets/fonts/Arial.ttf")
-                    font = PDType0Font.load(document, inputStream)
-                } catch (e: Exception) {}
-                
-                if (font == null) {
-                    val fontPaths = arrayOf(
-                        "/system/fonts/Arial.ttf",
-                        "/system/fonts/NotoSansArabic-Regular.ttf",
-                        "/system/fonts/NotoNaskhArabic-Regular.ttf",
-                        "/system/fonts/DroidSansArabic.ttf"
-                    )
-                    for (fp in fontPaths) {
-                        val f = File(fp)
-                        if (f.exists()) {
-                            try {
-                                font = PDType0Font.load(document, f)
-                                break
-                            } catch (e: Exception) {}
-                        }
-                    }
-                }
-                
-                if (font == null) {
-                    font = com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA_BOLD
-                }
-            
-            for (anno in undoStack) {
-                val page = document.getPage(anno.pageIndex)
-                val pageHeight = page.bBox.height
-                
-                val x = anno.x
-                val y = anno.y
-                val w = anno.w
-                val h = anno.h
-                
-                when (anno.type) {
-                    "highlight" -> {
-                        val contentStream = PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true, true)
-                        val gState = PDExtendedGraphicsState()
-                        gState.nonStrokingAlphaConstant = 0.5f // 50% opacity
-                        gState.blendMode = BlendMode.MULTIPLY
-                        contentStream.setGraphicsStateParameters(gState)
-                        
-                        setPdfBoxColor(contentStream, anno.color, true) // Set fill color
-                        
-                        val pdfY = pageHeight - y - h
-                        contentStream.addRect(x, pdfY, w, h)
-                        contentStream.fill()
-                        contentStream.close()
-                    }
-                    "underline" -> {
-                        val contentStream = PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true, true)
-                        setPdfBoxColor(contentStream, anno.color, false) // Set stroke color
-                        contentStream.setLineWidth(1.5f) // Slightly thinner than draw
-                        
-                        val pdfY = pageHeight - y - h
-                        // Draw line at bottom of the rect
-                        contentStream.moveTo(x, pdfY)
-                        contentStream.lineTo(x + w, pdfY)
-                        contentStream.stroke()
-                        contentStream.close()
-                    }
-                    "text" -> {
-                        val shapedText = ArabicShaper.shape(anno.text ?: "")
-                        val latinFont = com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA_BOLD
-                        
-                        drawMixedText(
-                            contentStream = PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true, true),
-                            text = shapedText,
-                            x = x,
-                            y = y,
-                            pageHeight = pageHeight,
-                            arabicFont = font!!,
-                            latinFont = latinFont,
-                            fontSize = 14f,
-                            color = anno.color
+                    // Font loading logic
+                    var font: PDFont? = null
+                    try {
+                        val inputStream: InputStream = context.assets.open("flutter_assets/assets/fonts/Arial.ttf")
+                        font = PDType0Font.load(document, inputStream)
+                    } catch (e: Exception) {}
+                    
+                    if (font == null) {
+                        val fontPaths = arrayOf(
+                            "/system/fonts/Arial.ttf",
+                            "/system/fonts/NotoSansArabic-Regular.ttf",
+                            "/system/fonts/NotoNaskhArabic-Regular.ttf",
+                            "/system/fonts/DroidSansArabic.ttf"
                         )
-                    }
-                    "draw" -> {
-                        val points = anno.points ?: continue
-                        if (points.isEmpty()) continue
-                        
-                        val contentStream = PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true, true)
-                        setPdfBoxColor(contentStream, drawColor, false)
-                        contentStream.setLineWidth(2f)
-                        
-                        contentStream.moveTo(points[0].x, pageHeight - points[0].y)
-                        for (i in 1 until points.size) {
-                            contentStream.lineTo(points[i].x, pageHeight - points[i].y)
+                        for (fp in fontPaths) {
+                            val f = File(fp)
+                            if (f.exists()) {
+                                try {
+                                    font = PDType0Font.load(document, f)
+                                    break
+                                } catch (e: Exception) {}
+                            }
                         }
-                        contentStream.stroke()
-                        contentStream.close()
                     }
+                    if (font == null) {
+                        font = com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA_BOLD
+                    }
+                
+                    // Apply annotations
+                    val stackCopy = ArrayList(undoStack)
+                    for (anno in stackCopy) {
+                        val page = document.getPage(anno.pageIndex)
+                        val pageHeight = page.bBox.height
+                        
+                        val x = anno.x
+                        val y = anno.y
+                        val w = anno.w
+                        val h = anno.h
+                        
+                        when (anno.type) {
+                            "highlight" -> {
+                                val contentStream = PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true, true)
+                                val gState = PDExtendedGraphicsState()
+                                gState.nonStrokingAlphaConstant = 0.5f 
+                                gState.blendMode = BlendMode.MULTIPLY
+                                contentStream.setGraphicsStateParameters(gState)
+                                setPdfBoxColor(contentStream, anno.color, true)
+                                val pdfY = pageHeight - y - h
+                                contentStream.addRect(x, pdfY, w, h)
+                                contentStream.fill()
+                                contentStream.close()
+                            }
+                            "underline" -> {
+                                val contentStream = PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true, true)
+                                setPdfBoxColor(contentStream, anno.color, false)
+                                contentStream.setLineWidth(1.5f)
+                                val pdfY = pageHeight - y - h
+                                contentStream.moveTo(x, pdfY)
+                                contentStream.lineTo(x + w, pdfY)
+                                contentStream.stroke()
+                                contentStream.close()
+                            }
+                            "text" -> {
+                                val shapedText = ArabicShaper.shape(anno.text ?: "")
+                                val latinFont = com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA_BOLD
+                                drawMixedText(
+                                    contentStream = PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true, true),
+                                    text = shapedText,
+                                    x = x,
+                                    y = y,
+                                    pageHeight = pageHeight,
+                                    arabicFont = font!!,
+                                    latinFont = latinFont,
+                                    fontSize = 14f,
+                                    color = anno.color
+                                )
+                            }
+                            "draw" -> {
+                                val points = anno.points ?: continue
+                                if (points.isNotEmpty()) {
+                                    val contentStream = PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true, true)
+                                    setPdfBoxColor(contentStream, drawColor, false)
+                                    contentStream.setLineWidth(2f)
+                                    contentStream.moveTo(points[0].x, pageHeight - points[0].y)
+                                    for (i in 1 until points.size) {
+                                        contentStream.lineTo(points[i].x, pageHeight - points[i].y)
+                                    }
+                                    contentStream.stroke()
+                                    contentStream.close()
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Save to temp file
+                    tempFile = File.createTempFile("saved_pdf_", ".pdf", context.cacheDir)
+                    document.save(tempFile)
+                } finally {
+                    document.close() // Close save document explicitly
                 }
+
+                // 3. READ BYTES (Potentially risky but required by API)
+                val bytes = tempFile.readBytes()
+                
+                // 4. RESTORE: Re-open interaction document
+                synchronized(pdfBoxLock) {
+                    interactionDocument = PDDocument.load(File(path), MemoryUsageSetting.setupTempFileOnly())
+                }
+                
+                Handler(Looper.getMainLooper()).post {
+                    result.success(bytes)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                // Minimize damage if crash, try to re-open interaction doc
+                try {
+                     synchronized(pdfBoxLock) {
+                        if (interactionDocument == null) {
+                             interactionDocument = PDDocument.load(File(path), MemoryUsageSetting.setupTempFileOnly())
+                        }
+                     }
+                } catch(ign: Exception) {}
+                
+                Handler(Looper.getMainLooper()).post {
+                    result.error("SAVE_ERROR", e.message, null)
+                }
+            } finally {
+                 tempFile?.delete()
             }
-            
-            val outputStream = ByteArrayOutputStream()
-            document.save(outputStream)
-            val bytes = outputStream.toByteArray()
-            
-            Handler(Looper.getMainLooper()).post {
-                result.success(bytes)
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            Handler(Looper.getMainLooper()).post {
-                result.error("SAVE_ERROR", e.message, null)
-            }
-        } finally {
-            document?.close()
         }
-    }.start()
-}
+    }
 
     inner class AnnotationImageView(context: Context, var pageIndex: Int, var pdfWidth: Int, var pdfHeight: Int) : ImageView(context) {
         
@@ -683,97 +751,93 @@ class AndroidPdfView(
         })
 
         private fun snapToText(x: Float, y: Float) {
-            Thread {
-                val path = currentPath ?: return@Thread
-                var document: PDDocument? = null
+            interactionExecutor.execute {
+                val document = interactionDocument ?: return@execute
                 try {
-                    document = PDDocument.load(File(path))
-                    val locator = TextLocator(pageIndex, x, y)
-                    locator.getTextPositions(document)
-                    
-                    val bounds = locator.bestMatch
-                    post {
-                        if (bounds != null) {
-                            val h = if (currentTool == "highlight") bounds.height() else 8f
-                            // REMOVED EXTRA PADDING HERE to allow cleaner reversion
-                            val yOffset = if (currentTool == "highlight") 0f else bounds.height() - 2f
-                            
-                            val anno = Annotation(
-                                pageIndex, currentTool, 
-                                bounds.left, bounds.top + yOffset, 
-                                bounds.width(), if (currentTool == "highlight") h else 4f, 
-                                null, 
-                                if (currentTool == "highlight") highlightColor else underlineColor
-                            )
-                            addAnnotation(anno)
-                        } else {
-                            val h = if (currentTool == "highlight") 30f else 6f
-                            val anno = Annotation(
-                                pageIndex, currentTool, 
-                                x - 100, y - h/4, 
-                                200f, h/2, null, 
-                                if (currentTool == "highlight") highlightColor else underlineColor
-                            )
-                            addAnnotation(anno)
-                        }
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                } finally {
-                    document?.close()
-                }
-            }.start()
-        }
-
-        private fun snapToTextRange(x1: Float, y1: Float, x2: Float, y2: Float) {
-            Thread {
-                val path = currentPath ?: return@Thread
-                var document: PDDocument? = null
-                try {
-                    document = PDDocument.load(File(path))
-                    val locator = TextRangeLocator(pageIndex, x1, y1, x2, y2)
-                    locator.getTextPositions(document)
-                    
-                    val matches = locator.lineMatches
-                    post {
-                        if (matches.isNotEmpty()) {
-                            for (bounds in matches) {
+                    synchronized(pdfBoxLock) {
+                        val locator = TextLocator(pageIndex, x, y)
+                        locator.getTextPositions(document)
+                        
+                        val bounds = locator.bestMatch
+                        post {
+                            if (bounds != null) {
                                 val h = if (currentTool == "highlight") bounds.height() else 8f
+                                // REMOVED EXTRA PADDING HERE to allow cleaner reversion
                                 val yOffset = if (currentTool == "highlight") 0f else bounds.height() - 2f
                                 
                                 val anno = Annotation(
                                     pageIndex, currentTool, 
                                     bounds.left, bounds.top + yOffset, 
-                                    bounds.width(), if (currentTool == "highlight") bounds.height() else 4f, 
+                                    bounds.width(), if (currentTool == "highlight") h else 4f, 
                                     null, 
                                     if (currentTool == "highlight") highlightColor else underlineColor
                                 )
                                 addAnnotation(anno)
+                            } else {
+                                val h = if (currentTool == "highlight") 30f else 6f
+                                val anno = Annotation(
+                                    pageIndex, currentTool, 
+                                    x - 100, y - h/4, 
+                                    200f, h/2, null, 
+                                    if (currentTool == "highlight") highlightColor else underlineColor
+                                )
+                                addAnnotation(anno)
                             }
-                        } else {
-                            // Fallback to manual box
-                            val left = Math.min(x1, x2)
-                            val top = Math.min(y1, y2)
-                            val right = Math.max(x1, x2)
-                            val bottom = Math.max(y1, y2)
-                            val w = Math.max(right - left, 50f)
-                            val h = if (currentTool == "highlight") Math.max(bottom - top, 20f) else 6f
-                            
-                            val anno = Annotation(
-                                pageIndex, currentTool, 
-                                left, top, 
-                                w, h, null, 
-                                if (currentTool == "highlight") highlightColor else underlineColor
-                            )
-                            addAnnotation(anno)
                         }
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
-                } finally {
-                    document?.close()
                 }
-            }.start()
+            }
+        }
+
+        private fun snapToTextRange(x1: Float, y1: Float, x2: Float, y2: Float) {
+             interactionExecutor.execute {
+                val document = interactionDocument ?: return@execute
+                try {
+                    synchronized(pdfBoxLock) {
+                        val locator = TextRangeLocator(pageIndex, x1, y1, x2, y2)
+                        locator.getTextPositions(document)
+                        
+                        val matches = locator.lineMatches
+                        post {
+                            if (matches.isNotEmpty()) {
+                                for (bounds in matches) {
+                                    val h = if (currentTool == "highlight") bounds.height() else 8f
+                                    val yOffset = if (currentTool == "highlight") 0f else bounds.height() - 2f
+                                    
+                                    val anno = Annotation(
+                                        pageIndex, currentTool, 
+                                        bounds.left, bounds.top + yOffset, 
+                                        bounds.width(), if (currentTool == "highlight") bounds.height() else 4f, 
+                                        null, 
+                                        if (currentTool == "highlight") highlightColor else underlineColor
+                                    )
+                                    addAnnotation(anno)
+                                }
+                            } else {
+                                // Fallback to manual box
+                                val left = Math.min(x1, x2)
+                                val top = Math.min(y1, y2)
+                                val right = Math.max(x1, x2)
+                                val bottom = Math.max(y1, y2)
+                                val w = Math.max(right - left, 50f)
+                                val h = if (currentTool == "highlight") Math.max(bottom - top, 20f) else 6f
+                                
+                                val anno = Annotation(
+                                    pageIndex, currentTool, 
+                                    left, top, 
+                                    w, h, null, 
+                                    if (currentTool == "highlight") highlightColor else underlineColor
+                                )
+                                addAnnotation(anno)
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
 
         override fun onTouchEvent(event: MotionEvent?): Boolean {
