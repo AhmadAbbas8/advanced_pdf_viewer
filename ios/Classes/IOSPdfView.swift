@@ -123,6 +123,9 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
     private var highlightColor: UIColor = UIColor.yellow.withAlphaComponent(0.5)
     private var underlineColor: UIColor = .blue
     private var enablePageNumber: Bool = false
+    
+    // Page tracking
+    private var currentPage: Int = 0
 
     init(
         frame: CGRect,
@@ -170,6 +173,29 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
         
         setupGestureRecognizers()
         setupMenuController()
+        setupPageChangeObserver()
+    }
+    
+    private func setupPageChangeObserver() {
+        // Observe page change notifications from PDFView
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(pageChanged(_:)),
+            name: .PDFViewPageChanged,
+            object: pdfView
+        )
+    }
+    
+    @objc private func pageChanged(_ notification: Notification) {
+        guard let document = pdfView.document,
+              let currentPDFPage = pdfView.currentPage else { return }
+        
+        let pageIndex = document.index(for: currentPDFPage)
+        if pageIndex != currentPage {
+            currentPage = pageIndex
+            // Notify Flutter of page change
+            methodChannel.invokeMethod("onPageChanged", arguments: currentPage)
+        }
     }
 
     func view() -> UIView {
@@ -319,6 +345,8 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
             } else {
                 result(FlutterError(code: "INVALID_ARGUMENTS", message: "Scale is required", details: nil))
             }
+        case "getCurrentPage":
+            result(currentPage)
         default:
             result(FlutterMethodNotImplemented)
         }

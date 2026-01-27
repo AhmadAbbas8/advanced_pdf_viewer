@@ -7,6 +7,8 @@ enum PdfAnnotationTool { none, draw, highlight, underline, text }
 class AdvancedPdfViewerController {
   MethodChannel? _channel;
   Function(double x, double y, int pageIndex)? _onPdfTapped;
+  Function(int page)? _onPageChanged;
+  int _currentPage = 0;
 
   /// Sets the method channel and initializes the tap handler.
   void setChannel(MethodChannel channel) {
@@ -19,6 +21,9 @@ class AdvancedPdfViewerController {
         final double y = (args['y'] as num).toDouble();
         final int pageIndex = (args['pageIndex'] as int?) ?? 0;
         _onPdfTapped?.call(x, y, pageIndex);
+      } else if (call.method == 'onPageChanged') {
+        final int page = (call.arguments as int?) ?? 0;
+        _handlePageChanged(page);
       }
     });
   }
@@ -26,6 +31,22 @@ class AdvancedPdfViewerController {
   /// Sets a callback for when the PDF is tapped (used for text input).
   void setOnPdfTapped(Function(double x, double y, int pageIndex) callback) {
     _onPdfTapped = callback;
+  }
+
+  /// Sets a callback for when the current page changes.
+  void setOnPageChanged(Function(int page) callback) {
+    _onPageChanged = callback;
+  }
+
+  /// Handles page change events from the native platform.
+  void _handlePageChanged(int page) {
+    _currentPage = page;
+    _onPageChanged?.call(page);
+  }
+
+  /// Returns the current page index (0-indexed).
+  int getCurrentPage() {
+    return _currentPage;
   }
 
   /// Sets the current drawing tool and configuration (colors, etc).
@@ -120,10 +141,20 @@ class AdvancedPdfViewerController {
     await _channel?.invokeMethod('setZoom', {'scale': scale});
   }
 
+  /// Requests the current page from the native platform.
+  Future<int> requestCurrentPage() async {
+    final int? page = await _channel?.invokeMethod<int>('getCurrentPage');
+    if (page != null) {
+      _currentPage = page;
+    }
+    return _currentPage;
+  }
+
   /// Disposes of the controller and its resources.
   void dispose() {
     _channel?.setMethodCallHandler(null);
     _channel = null;
     _onPdfTapped = null;
+    _onPageChanged = null;
   }
 }

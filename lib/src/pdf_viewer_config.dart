@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'pdf_localizations.dart';
 
 class PdfViewerConfig {
   /// Whether to show the drawing tool button.
@@ -50,6 +51,24 @@ class PdfViewerConfig {
   /// Whether to show the page number identifier.
   final bool enablePageNumber;
 
+  /// Whether to enable bookmarks feature.
+  final bool enableBookmarks;
+
+  /// Whether to show the bookmark button in toolbar.
+  final bool showBookmarkButton;
+
+  /// Whether to show the bookmarks list button in toolbar.
+  final bool showBookmarksListButton;
+
+  /// Optional custom storage key for bookmarks. If null, auto-generated.
+  final String? bookmarkStorageKey;
+
+  /// Callback when the current page changes.
+  final Function(int page)? onPageChanged;
+
+  /// Language for UI strings. If null, will try to use InheritedWidget or default to English.
+  final PdfViewerLanguage? language;
+
   const PdfViewerConfig({
     this.showDrawButton = true,
     this.showHighlightButton = true,
@@ -67,6 +86,12 @@ class PdfViewerConfig {
     this.highlightColor = const Color(0x80FFFF00), // Semi-transparent yellow
     this.underlineColor = Colors.blue,
     this.enablePageNumber = false,
+    this.enableBookmarks = false,
+    this.showBookmarkButton = true,
+    this.showBookmarksListButton = true,
+    this.bookmarkStorageKey,
+    this.onPageChanged,
+    this.language,
   });
 
   PdfViewerConfig copyWith({
@@ -86,6 +111,12 @@ class PdfViewerConfig {
     Color? highlightColor,
     Color? underlineColor,
     bool? enablePageNumber,
+    bool? enableBookmarks,
+    bool? showBookmarkButton,
+    bool? showBookmarksListButton,
+    String? bookmarkStorageKey,
+    Function(int page)? onPageChanged,
+    PdfViewerLanguage? language,
   }) {
     return PdfViewerConfig(
       showDrawButton: showDrawButton ?? this.showDrawButton,
@@ -104,6 +135,13 @@ class PdfViewerConfig {
       highlightColor: highlightColor ?? this.highlightColor,
       underlineColor: underlineColor ?? this.underlineColor,
       enablePageNumber: enablePageNumber ?? this.enablePageNumber,
+      enableBookmarks: enableBookmarks ?? this.enableBookmarks,
+      showBookmarkButton: showBookmarkButton ?? this.showBookmarkButton,
+      showBookmarksListButton:
+          showBookmarksListButton ?? this.showBookmarksListButton,
+      bookmarkStorageKey: bookmarkStorageKey ?? this.bookmarkStorageKey,
+      onPageChanged: onPageChanged ?? this.onPageChanged,
+      language: language ?? this.language,
     );
   }
 }

@@ -34,7 +34,8 @@ class _MyAppState extends State<MyApp> {
       _bytes = null;
       // _url = 'https://easy.easy-stream.net/pdfs/d3982bb2-9eec-4167-9194-dfea5082022e.pdf';
       // _url ='https://easy.easy-stream.net/pdfs/7070626f-9557-4331-b152-faf7cf76a0fc.pdf';
-      _url = 'https://easy.easy-stream.net/pdfs/c05d15da-c41b-4858-9afe-defb0a693312.pdf';
+      _url =
+          'https://easy.easy-stream.net/pdfs/c05d15da-c41b-4858-9afe-defb0a693312.pdf';
       // _url= 'https://easy.easy-stream.net/pdfs/365c6a47-08ab-49a1-80c8-997f2a0bf897.pdf';
     });
   }
@@ -54,6 +55,7 @@ class _MyAppState extends State<MyApp> {
 
   Future<void> _savePdf() async {
     final data = await _controller.savePdf();
+
     if (data != null) {
       setState(() {
         _bytes = Uint8List.fromList(data);
@@ -136,6 +138,7 @@ class _MyAppState extends State<MyApp> {
                       ? AdvancedPdfViewer.network(
                           _url!,
                           controller: _controller,
+
                           key: ValueKey(_url),
                           config: PdfViewerConfig(
                             showTextButton: false,
@@ -144,9 +147,16 @@ class _MyAppState extends State<MyApp> {
                             showZoomButtons: false,
                             toolbarColor: Colors.white,
                             enablePageNumber: true,
+                            language: PdfViewerLanguage.arabic,
+
                             onFullScreenInit: () {
                               log('full screen initialized');
                             },
+                            showBookmarkButton: true,
+                            enableBookmarks: true,
+                            showBookmarksListButton: true,
+
+                            // bookmarkStorageKey: ,
                             highlightColor: Color(
                               0x8000FF00,
                             ), // Semi-transparent green
@@ -161,7 +171,9 @@ class _MyAppState extends State<MyApp> {
                             showTextButton: false,
                             drawColor: Colors.red,
                             allowFullScreen: false,
-                            showZoomButtons: false, enablePageNumber: true,
+                            showZoomButtons: false,
+                            enablePageNumber: true,
+                            language: PdfViewerLanguage.arabic,
 
                             onFullScreenInit: () {
                               print("Entered full screen!");

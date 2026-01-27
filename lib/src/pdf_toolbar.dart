@@ -8,6 +8,9 @@ class PdfToolbar extends StatelessWidget {
   final AdvancedPdfViewerController? controller;
   final PdfViewerConfig config;
   final VoidCallback onFullScreenPressed;
+  final VoidCallback? onBookmarkPressed;
+  final VoidCallback? onShowBookmarksPressed;
+  final bool isCurrentPageBookmarked;
 
   const PdfToolbar({
     super.key,
@@ -16,6 +19,9 @@ class PdfToolbar extends StatelessWidget {
     this.controller,
     required this.config,
     required this.onFullScreenPressed,
+    this.onBookmarkPressed,
+    this.onShowBookmarksPressed,
+    this.isCurrentPageBookmarked = false,
   });
 
   @override
@@ -134,6 +140,38 @@ class PdfToolbar extends StatelessWidget {
                     onPressed: () => controller?.zoomOut(),
                     tooltip: 'Zoom Out',
                   ),
+                ],
+                if (config.enableBookmarks) ...[
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8.0),
+                    child: VerticalDivider(width: 20),
+                  ),
+                  if (config.showBookmarkButton)
+                    IconButton(
+                      icon: Icon(
+                        isCurrentPageBookmarked
+                            ? (Theme.of(context).platform == TargetPlatform.iOS
+                                  ? Icons.bookmark_rounded
+                                  : Icons.bookmark)
+                            : (Theme.of(context).platform == TargetPlatform.iOS
+                                  ? Icons.bookmark_border_rounded
+                                  : Icons.bookmark_border),
+                      ),
+                      onPressed: onBookmarkPressed,
+                      tooltip: isCurrentPageBookmarked
+                          ? 'Remove Bookmark'
+                          : 'Add Bookmark',
+                    ),
+                  if (config.showBookmarksListButton)
+                    IconButton(
+                      icon: Icon(
+                        Theme.of(context).platform == TargetPlatform.iOS
+                            ? Icons.bookmarks_rounded
+                            : Icons.bookmarks,
+                      ),
+                      onPressed: onShowBookmarksPressed,
+                      tooltip: 'View Bookmarks',
+                    ),
                 ],
               ],
             ),

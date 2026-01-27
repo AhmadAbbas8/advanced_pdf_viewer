@@ -91,6 +91,9 @@ class AndroidPdfView(
     private var underlineColor: Int = Color.BLUE
     private var enablePageNumber: Boolean = false
     
+    // Page tracking
+    private var currentPage: Int = 0
+    
     private val undoStack = Stack<Annotation>()
     private val redoStack = Stack<Annotation>()
     
@@ -145,6 +148,21 @@ class AndroidPdfView(
         recyclerView.adapter = PdfAdapter()
         recyclerView.setItemViewCacheSize(3) // Reduced cache size
         recyclerView.setHasFixedSize(true)
+        
+        // Add scroll listener for page change tracking
+        recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                super.onScrolled(recyclerView, dx, dy)
+                val visiblePosition = layoutManager.findFirstVisibleItemPosition()
+                if (visiblePosition >= 0 && visiblePosition != currentPage) {
+                    currentPage = visiblePosition
+                    // Notify Flutter of page change
+                    mainHandler.post {
+                        methodChannel.invokeMethod("onPageChanged", currentPage)
+                    }
+                }
+            }
+        })
         
         recyclerView.setOnTouchListener { _, event ->
             scaleDetector.onTouchEvent(event)
@@ -438,6 +456,9 @@ class AndroidPdfView(
                 }
                 updateZoom()
                 result.success(null)
+            }
+            "getCurrentPage" -> {
+                result.success(currentPage)
             }
             else -> result.notImplemented()
         }

@@ -7,9 +7,15 @@ import 'src/pdf_viewer_controller.dart';
 import 'src/pdf_cache_manager.dart';
 import 'src/pdf_viewer_config.dart';
 import 'src/pdf_toolbar.dart';
+import 'src/bookmark_manager.dart';
+import 'src/bookmarks_dialog.dart';
+import 'src/pdf_localizations.dart';
+import 'src/pdf_snackbar.dart';
 
 export 'src/pdf_viewer_controller.dart';
 export 'src/pdf_viewer_config.dart';
+export 'src/bookmark_manager.dart';
+export 'src/pdf_localizations.dart';
 
 class AdvancedPdfViewerPlugin {
   Future<String?> getPlatformVersion() {
@@ -66,11 +72,45 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
   String? _error;
   PdfAnnotationTool _currentTool = PdfAnnotationTool.none;
 
+  // Bookmark-related state
+  final BookmarkManager _bookmarkManager = BookmarkManager();
+  String? _pdfKey;
+  int _currentPage = 0;
+  bool _isCurrentPageBookmarked = false;
+
   @override
   void initState() {
     super.initState();
     widget.controller?.setOnPdfTapped(_onPdfTapped);
+    if (widget.config.enableBookmarks) {
+      widget.controller?.setOnPageChanged(_onPageChanged);
+      _initializeBookmarks();
+    }
     _preparePdf();
+  }
+
+  void _initializeBookmarks() {
+    // Generate or use provided PDF key
+    _pdfKey =
+        widget.config.bookmarkStorageKey ??
+        BookmarkManager.generatePdfKey(widget.url, widget.bytes);
+  }
+
+  void _onPageChanged(int page) async {
+    setState(() {
+      _currentPage = page;
+    });
+
+    // Call config callback if provided
+    widget.config.onPageChanged?.call(page);
+
+    // Update bookmark state
+    if (widget.config.enableBookmarks && _pdfKey != null) {
+      final isBookmarked = await _bookmarkManager.isBookmarked(_pdfKey!, page);
+      setState(() {
+        _isCurrentPageBookmarked = isBookmarked;
+      });
+    }
   }
 
   @override
@@ -142,25 +182,42 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
     }
   }
 
+  /// Get effective localizations based on config, inheritance, or default
+  PdfLocalizations _getEffectiveLocalizations(BuildContext context) {
+    if (widget.config.language != null) {
+      return PdfLocalizations(widget.config.language!);
+    }
+
+    // Try to get from provider
+    final provider = context
+        .dependOnInheritedWidgetOfExactType<PdfLocalizationsProvider>();
+    if (provider != null) {
+      return provider.localizations;
+    }
+
+    return const PdfLocalizations(PdfViewerLanguage.english);
+  }
+
   Future<void> _showTextInputDialog(double x, double y, int pageIndex) async {
+    final localizations = _getEffectiveLocalizations(context);
     final TextEditingController textController = TextEditingController();
     final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Add Text'),
+        title: Text(localizations.addText),
         content: TextField(
           controller: textController,
           autofocus: true,
-          decoration: const InputDecoration(hintText: 'Enter text here'),
+          decoration: InputDecoration(hintText: localizations.enterTextHere),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text(localizations.cancel),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, textController.text),
-            child: const Text('Add'),
+            child: Text(localizations.add),
           ),
         ],
       ),
@@ -177,16 +234,113 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
     }
   }
 
+  Future<void> _handleBookmarkPressed() async {
+    if (_pdfKey == null) return;
+
+    // Check if current page is already bookmarked
+    if (_isCurrentPageBookmarked) {
+      // Remove bookmark
+      await _bookmarkManager.removeBookmark(_pdfKey!, _currentPage);
+      setState(() {
+        _isCurrentPageBookmarked = false;
+      });
+      if (mounted) {
+        final localizations = _getEffectiveLocalizations(context);
+        PdfSnackBar.show(
+          context,
+          content: localizations.bookmarkRemoved,
+          type: SnackBarType.info,
+        );
+      }
+    } else {
+      // Show dialog to add bookmark with optional name
+      final localizations = _getEffectiveLocalizations(context);
+      final TextEditingController nameController = TextEditingController(
+        text: localizations.pageNumber(_currentPage),
+      );
+
+      final result = await showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(localizations.addBookmark),
+          content: TextField(
+            controller: nameController,
+            autofocus: true,
+            decoration: InputDecoration(
+              hintText: localizations.enterBookmarkName,
+              labelText: localizations.bookmarkName,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(localizations.cancel),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, nameController.text),
+              child: Text(localizations.save),
+            ),
+          ],
+        ),
+      );
+
+      if (result != null && result.isNotEmpty) {
+        await _bookmarkManager.saveBookmark(_pdfKey!, _currentPage, result);
+        setState(() {
+          _isCurrentPageBookmarked = true;
+        });
+        if (mounted) {
+          final localizations = _getEffectiveLocalizations(context);
+          PdfSnackBar.show(
+            context,
+            content: localizations.bookmarkAdded,
+            type: SnackBarType.success,
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _handleShowBookmarks() async {
+    if (_pdfKey == null) return;
+
+    final bookmarks = await _bookmarkManager.getBookmarks(_pdfKey!);
+
+    if (!mounted) return;
+
+    final selectedPage = await showBookmarksDialog(
+      context: context,
+      bookmarks: bookmarks,
+      onRemoveBookmark: (page) async {
+        await _bookmarkManager.removeBookmark(_pdfKey!, page);
+        // Update state if the removed bookmark is current page
+        if (page == _currentPage) {
+          setState(() {
+            _isCurrentPageBookmarked = false;
+          });
+        }
+      },
+      localizations: _getEffectiveLocalizations(context),
+    );
+
+    if (selectedPage != null && mounted) {
+      // Navigate to selected page
+      widget.controller?.jumpToPage(selectedPage);
+    }
+  }
+
   void _onToolSelected(PdfAnnotationTool tool) {
     setState(() {
       _currentTool = tool;
     });
     Color? color;
     if (tool == PdfAnnotationTool.draw) color = widget.config.drawColor;
-    if (tool == PdfAnnotationTool.highlight)
+    if (tool == PdfAnnotationTool.highlight) {
       color = widget.config.highlightColor;
-    if (tool == PdfAnnotationTool.underline)
+    }
+    if (tool == PdfAnnotationTool.underline) {
       color = widget.config.underlineColor;
+    }
     widget.controller?.setDrawingMode(tool, color: color);
 
     // Lock scrolling if any annotation tool is active
@@ -244,9 +398,26 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
     }
 
     if (_error != null) {
-      return Center(child: Text('Error: $_error'));
+      final localizations = _getEffectiveLocalizations(context);
+      return Center(child: Text(localizations.errorMessage(_error!)));
     }
 
+    // Get effective localizations for the provider
+    final localizations = _getEffectiveLocalizations(context);
+
+    // Wrap with localization provider and directionality
+    return PdfLocalizationsProvider(
+      localizations: localizations,
+      child: Directionality(
+        textDirection: localizations.isRTL
+            ? TextDirection.rtl
+            : TextDirection.ltr,
+        child: _buildViewerContent(),
+      ),
+    );
+  }
+
+  Widget _buildViewerContent() {
     return Stack(
       children: [
         _buildNativeView(),
@@ -263,6 +434,13 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
                   controller: widget.controller,
                   config: widget.config,
                   onFullScreenPressed: _onFullScreen,
+                  onBookmarkPressed: widget.config.enableBookmarks
+                      ? _handleBookmarkPressed
+                      : null,
+                  onShowBookmarksPressed: widget.config.enableBookmarks
+                      ? _handleShowBookmarks
+                      : null,
+                  isCurrentPageBookmarked: _isCurrentPageBookmarked,
                 ),
               ),
             ),
