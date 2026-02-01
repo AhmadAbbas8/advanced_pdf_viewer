@@ -148,7 +148,7 @@ class _MyAppState extends State<MyApp> {
                             toolbarColor: Colors.white,
                             enablePageNumber: true,
                             language: PdfViewerLanguage.arabic,
-
+                       
                             onFullScreenInit: () {
                               log('full screen initialized');
                             },

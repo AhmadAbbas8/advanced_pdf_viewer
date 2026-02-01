@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.0
+
+- **Color Selection**: Added dynamic color selection for all drawing tools (Draw, Highlight, Underline, Text).
+- **Interaction**: Support for double-clicking/tapping an active tool button to open the color selection dialog.
+- **Color Picker**: New bottom sheet dialog with 6 default colors and a custom color palette (+ button).
+- **Text Color Support**: Added `textColor` to `PdfViewerConfig` to customize the default color for text annotations.
+- **Configuration**: New configuration options `enableColorSelection` and tool-specific default color lists.
+- **Fix**: Resolved UI sync issue where the color picker did not reflect the currently active color.
+
 ## 0.8.0
 
 - **Text Search**: Full-text search support on Android (PDFBox) and iOS (PDFKit) with native highlighting and navigation.

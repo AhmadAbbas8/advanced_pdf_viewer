@@ -70,6 +70,8 @@ class PdfLocalizations {
       'previous': 'Previous',
       'results': '{current}/{total}',
       'clearSearch': 'Clear Search',
+      'selectColor': 'Select Color',
+      'customColor': 'Custom Color',
     },
     PdfViewerLanguage.arabic: {
       'bookmarks': 'الصفحات المحفوظه',
@@ -113,6 +115,8 @@ class PdfLocalizations {
       'previous': 'السابق',
       'results': '{current}/{total}',
       'clearSearch': 'مسح البحث',
+      'selectColor': 'اختر اللون',
+      'customColor': 'لون مخصص',
     },
   };
 
@@ -183,6 +187,8 @@ class PdfLocalizations {
     'results',
   ).replaceAll('{current}', '$current').replaceAll('{total}', '$total');
   String get clearSearch => _getString('clearSearch');
+  String get selectColor => _getString('selectColor');
+  String get customColor => _getString('customColor');
 
   /// Get localization from context or return default English
   static PdfLocalizations of(BuildContext context) {

@@ -81,12 +81,20 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
   // Runtime toolbar customization state
   late PdfToolbarPosition _toolbarPosition;
   late PdfToolbarStyle _toolbarStyle;
+  late Color _drawColor;
+  late Color _highlightColor;
+  late Color _underlineColor;
+  late Color _textColor;
 
   @override
   void initState() {
     super.initState();
     _toolbarPosition = widget.config.toolbarPosition;
     _toolbarStyle = widget.config.toolbarStyle;
+    _drawColor = widget.config.drawColor;
+    _highlightColor = widget.config.highlightColor;
+    _underlineColor = widget.config.underlineColor;
+    _textColor = widget.config.textColor;
     widget.controller?.setOnPdfTapped(_onPdfTapped);
     if (widget.config.enableBookmarks) {
       widget.controller?.setOnPageChanged(_onPageChanged);
@@ -132,6 +140,10 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
       setState(() {
         _toolbarPosition = widget.config.toolbarPosition;
         _toolbarStyle = widget.config.toolbarStyle;
+        _drawColor = widget.config.drawColor;
+        _highlightColor = widget.config.highlightColor;
+        _underlineColor = widget.config.underlineColor;
+        _textColor = widget.config.textColor;
       });
     }
   }
@@ -239,7 +251,7 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
         x,
         y,
         pageIndex,
-        color: widget.config.drawColor,
+        color: _textColor,
       );
     }
   }
@@ -344,12 +356,15 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
       _currentTool = tool;
     });
     Color? color;
-    if (tool == PdfAnnotationTool.draw) color = widget.config.drawColor;
+    if (tool == PdfAnnotationTool.draw) color = _drawColor;
     if (tool == PdfAnnotationTool.highlight) {
-      color = widget.config.highlightColor;
+      color = _highlightColor;
     }
     if (tool == PdfAnnotationTool.underline) {
-      color = widget.config.underlineColor;
+      color = _underlineColor;
+    }
+    if (tool == PdfAnnotationTool.text) {
+      color = _textColor;
     }
     widget.controller?.setDrawingMode(tool, color: color);
 
@@ -459,6 +474,18 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
                       setState(() => _toolbarStyle = style),
                   onPositionChanged: (pos) =>
                       setState(() => _toolbarPosition = pos),
+                  drawColor: _drawColor,
+                  highlightColor: _highlightColor,
+                  underlineColor: _underlineColor,
+                  textColor: _textColor,
+                  onDrawColorChanged: (color) =>
+                      setState(() => _drawColor = color),
+                  onHighlightColorChanged: (color) =>
+                      setState(() => _highlightColor = color),
+                  onUnderlineColorChanged: (color) =>
+                      setState(() => _underlineColor = color),
+                  onTextColorChanged: (color) =>
+                      setState(() => _textColor = color),
                 ),
               ),
             ),

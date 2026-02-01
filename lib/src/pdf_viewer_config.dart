@@ -131,6 +131,9 @@ class PdfViewerConfig {
   /// Color for underlines.
   final Color underlineColor;
 
+  /// Color for text annotations.
+  final Color textColor;
+
   /// Whether to show the page number identifier.
   final bool enablePageNumber;
 
@@ -163,7 +166,21 @@ class PdfViewerConfig {
 
   /// Whether to show the search button in the toolbar.
   final bool showSearchButton;
-  
+
+  /// Whether to enable the color selection feature (double-click tool to pick color).
+  final bool enableColorSelection;
+
+  /// Default colors for the drawing tool.
+  final List<Color> defaultDrawColors;
+
+  /// Default colors for the highlight tool.
+  final List<Color> defaultHighlightColors;
+
+  /// Default colors for the underline tool.
+  final List<Color> defaultUnderlineColors;
+
+  /// Default colors for the text tool.
+  final List<Color> defaultTextColors;
 
   const PdfViewerConfig({
     this.showDrawButton = true,
@@ -184,6 +201,7 @@ class PdfViewerConfig {
     this.drawColor = Colors.red,
     this.highlightColor = const Color(0x80FFFF00), // Semi-transparent yellow
     this.underlineColor = Colors.blue,
+    this.textColor = Colors.black,
     this.enablePageNumber = false,
     this.enableBookmarks = false,
     this.showBookmarkButton = true,
@@ -195,6 +213,39 @@ class PdfViewerConfig {
     this.toolbarStyle = const PdfToolbarStyle(),
     this.showToolbarSettings = true,
     this.showSearchButton = true,
+    this.enableColorSelection = true,
+    this.defaultDrawColors = const [
+      Colors.red,
+      Colors.blue,
+      Colors.green,
+      Colors.orange,
+      Colors.purple,
+      Colors.black,
+    ],
+    this.defaultHighlightColors = const [
+      Color(0x80FFFF00), // Yellow
+      Color(0x8000FF00), // Green
+      Color(0x8000FFFF), // Cyan
+      Color(0x80FF00FF), // Magenta
+      Color(0x80FFA500), // Orange
+      Color(0x80FFB6C1), // Light Pink
+    ],
+    this.defaultUnderlineColors = const [
+      Colors.blue,
+      Colors.red,
+      Colors.green,
+      Colors.orange,
+      Colors.purple,
+      Colors.black,
+    ],
+    this.defaultTextColors = const [
+      Colors.black,
+      Colors.red,
+      Colors.blue,
+      Colors.green,
+      Colors.orange,
+      Colors.purple,
+    ],
   });
 
   PdfViewerConfig copyWith({
@@ -213,6 +264,7 @@ class PdfViewerConfig {
     Color? drawColor,
     Color? highlightColor,
     Color? underlineColor,
+    Color? textColor,
     bool? enablePageNumber,
     bool? enableBookmarks,
     bool? showBookmarkButton,
@@ -224,6 +276,11 @@ class PdfViewerConfig {
     PdfToolbarStyle? toolbarStyle,
     bool? showToolbarSettings,
     bool? showSearchButton,
+    bool? enableColorSelection,
+    List<Color>? defaultDrawColors,
+    List<Color>? defaultHighlightColors,
+    List<Color>? defaultUnderlineColors,
+    List<Color>? defaultTextColors,
   }) {
     return PdfViewerConfig(
       showDrawButton: showDrawButton ?? this.showDrawButton,
@@ -241,6 +298,7 @@ class PdfViewerConfig {
       drawColor: drawColor ?? this.drawColor,
       highlightColor: highlightColor ?? this.highlightColor,
       underlineColor: underlineColor ?? this.underlineColor,
+      textColor: textColor ?? this.textColor,
       enablePageNumber: enablePageNumber ?? this.enablePageNumber,
       enableBookmarks: enableBookmarks ?? this.enableBookmarks,
       showBookmarkButton: showBookmarkButton ?? this.showBookmarkButton,
@@ -253,6 +311,13 @@ class PdfViewerConfig {
       toolbarStyle: toolbarStyle ?? this.toolbarStyle,
       showToolbarSettings: showToolbarSettings ?? this.showToolbarSettings,
       showSearchButton: showSearchButton ?? this.showSearchButton,
+      enableColorSelection: enableColorSelection ?? this.enableColorSelection,
+      defaultDrawColors: defaultDrawColors ?? this.defaultDrawColors,
+      defaultHighlightColors:
+          defaultHighlightColors ?? this.defaultHighlightColors,
+      defaultUnderlineColors:
+          defaultUnderlineColors ?? this.defaultUnderlineColors,
+      defaultTextColors: defaultTextColors ?? this.defaultTextColors,
     );
   }
 }

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'pdf_viewer_controller.dart';
 import 'pdf_viewer_config.dart';
 import 'pdf_localizations.dart';
+import 'pdf_color_selection_dialog.dart';
 
 class PdfToolbar extends StatefulWidget {
   final PdfAnnotationTool currentTool;
@@ -16,6 +17,14 @@ class PdfToolbar extends StatefulWidget {
   final bool isCurrentPageBookmarked;
   final ValueChanged<PdfToolbarStyle>? onStyleChanged;
   final ValueChanged<PdfToolbarPosition>? onPositionChanged;
+  final Color? drawColor;
+  final Color? highlightColor;
+  final Color? underlineColor;
+  final Color? textColor;
+  final ValueChanged<Color>? onDrawColorChanged;
+  final ValueChanged<Color>? onHighlightColorChanged;
+  final ValueChanged<Color>? onUnderlineColorChanged;
+  final ValueChanged<Color>? onTextColorChanged;
 
   const PdfToolbar({
     super.key,
@@ -29,6 +38,14 @@ class PdfToolbar extends StatefulWidget {
     this.isCurrentPageBookmarked = false,
     this.onStyleChanged,
     this.onPositionChanged,
+    this.drawColor,
+    this.highlightColor,
+    this.underlineColor,
+    this.textColor,
+    this.onDrawColorChanged,
+    this.onHighlightColorChanged,
+    this.onUnderlineColorChanged,
+    this.onTextColorChanged,
   });
 
   @override
@@ -366,7 +383,75 @@ class _PdfToolbarState extends State<PdfToolbar> {
 
   void _handleToolSelect(PdfAnnotationTool tool) {
     HapticFeedback.mediumImpact();
+
+    if (widget.currentTool == tool &&
+        widget.config.enableColorSelection &&
+        tool != PdfAnnotationTool.none) {
+      _showColorPicker(tool);
+      return;
+    }
+
     widget.onToolSelected(tool);
+  }
+
+  void _showColorPicker(PdfAnnotationTool tool) {
+    List<Color> defaultColors;
+    Color currentColor;
+
+    switch (tool) {
+      case PdfAnnotationTool.draw:
+        defaultColors = widget.config.defaultDrawColors;
+        currentColor = widget.drawColor ?? widget.config.drawColor;
+        break;
+      case PdfAnnotationTool.highlight:
+        defaultColors = widget.config.defaultHighlightColors;
+        currentColor = widget.highlightColor ?? widget.config.highlightColor;
+        break;
+      case PdfAnnotationTool.underline:
+        defaultColors = widget.config.defaultUnderlineColors;
+        currentColor = widget.underlineColor ?? widget.config.underlineColor;
+        break;
+      case PdfAnnotationTool.text:
+        defaultColors = widget.config.defaultTextColors;
+        currentColor = widget.textColor ?? widget.config.textColor;
+        break;
+      default:
+        return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => PdfColorSelectionDialog(
+        defaultColors: defaultColors,
+        currentColor: currentColor,
+        config: widget.config,
+        onColorSelected: (color) {
+          switch (tool) {
+            case PdfAnnotationTool.draw:
+              widget.onDrawColorChanged?.call(color);
+              widget.controller?.updateConfig(drawColor: color);
+              break;
+            case PdfAnnotationTool.highlight:
+              widget.onHighlightColorChanged?.call(color);
+              widget.controller?.updateConfig(highlightColor: color);
+              break;
+            case PdfAnnotationTool.underline:
+              widget.onUnderlineColorChanged?.call(color);
+              widget.controller?.updateConfig(underlineColor: color);
+              break;
+            case PdfAnnotationTool.text:
+              widget.onTextColorChanged?.call(color);
+              widget.controller?.updateConfig(textColor: color);
+              break;
+            default:
+              break;
+          }
+          // Also set the tool again with the new color to ensure native side is updated
+          widget.onToolSelected(tool);
+        },
+      ),
+    );
   }
 
   void _showSettings(BuildContext context) {

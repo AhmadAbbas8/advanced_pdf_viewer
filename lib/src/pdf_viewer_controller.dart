@@ -130,12 +130,14 @@ class AdvancedPdfViewerController {
     Color? drawColor,
     Color? highlightColor,
     Color? underlineColor,
+    Color? textColor,
     bool? enablePageNumber,
   }) async {
     await _channel?.invokeMethod('updateConfig', {
       'drawColor': drawColor?.toARGB32(),
       'highlightColor': highlightColor?.toARGB32(),
       'underlineColor': underlineColor?.toARGB32(),
+      'textColor': textColor?.toARGB32(),
       'enablePageNumber': enablePageNumber,
     });
   }
