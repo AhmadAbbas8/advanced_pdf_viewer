@@ -5,7 +5,7 @@ import 'pdf_viewer_controller.dart';
 import 'pdf_viewer_config.dart';
 import 'pdf_localizations.dart';
 
-class PdfToolbar extends StatelessWidget {
+class PdfToolbar extends StatefulWidget {
   final PdfAnnotationTool currentTool;
   final Function(PdfAnnotationTool) onToolSelected;
   final AdvancedPdfViewerController? controller;
@@ -32,15 +32,48 @@ class PdfToolbar extends StatelessWidget {
   });
 
   @override
+  State<PdfToolbar> createState() => _PdfToolbarState();
+}
+
+class _PdfToolbarState extends State<PdfToolbar> {
+  bool _isSearching = false;
+  bool _isSearchLoading = false;
+  int _currentMatch = 0;
+  int _totalMatches = 0;
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller?.setOnSearchResultsChanged((current, total) {
+      if (mounted) {
+        setState(() {
+          _currentMatch = current;
+          _totalMatches = total;
+          _isSearchLoading = false;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final style = config.toolbarStyle;
-    final isFloating = config.toolbarPosition == PdfToolbarPosition.floating;
+    final style = widget.config.toolbarStyle;
+    final localizations = PdfLocalizations.of(context);
+    final isFloating =
+        widget.config.toolbarPosition == PdfToolbarPosition.floating;
     final borderRadius =
         style.borderRadius ?? BorderRadius.circular(isFloating ? 32 : 12);
 
     Widget content = Container(
       margin: style.margin,
-      padding: config.toolbarPadding,
+      padding: widget.config.toolbarPadding,
       decoration: BoxDecoration(
         color:
             style.backgroundColor ??
@@ -60,132 +93,19 @@ class PdfToolbar extends StatelessWidget {
         ],
         border: Border.all(color: Colors.white.withOpacity(0.3), width: 0.8),
       ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        child: IntrinsicHeight(
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _ToolButton(
-                icon: Icons.pan_tool_alt_rounded,
-                isSelected: currentTool == PdfAnnotationTool.none,
-                onPressed: () => _handleToolSelect(PdfAnnotationTool.none),
-                tooltip: 'Pan',
-                activeColor: Colors.amber,
-                config: config,
-              ),
-              if (config.showDrawButton)
-                _ToolButton(
-                  icon: Icons.edit_rounded,
-                  isSelected: currentTool == PdfAnnotationTool.draw,
-                  onPressed: () => _handleToolSelect(PdfAnnotationTool.draw),
-                  tooltip: 'Draw',
-                  config: config,
-                ),
-              if (config.showHighlightButton)
-                _ToolButton(
-                  icon: Icons.brush_rounded,
-                  isSelected: currentTool == PdfAnnotationTool.highlight,
-                  onPressed: () =>
-                      _handleToolSelect(PdfAnnotationTool.highlight),
-                  tooltip: 'Highlight',
-                  config: config,
-                  activeColor: Colors.cyan,
-                ),
-              if (config.showUnderlineButton)
-                _ToolButton(
-                  icon: Icons.format_underlined_rounded,
-                  isSelected: currentTool == PdfAnnotationTool.underline,
-                  onPressed: () =>
-                      _handleToolSelect(PdfAnnotationTool.underline),
-                  tooltip: 'Underline',
-                  config: config,
-                ),
-              if (config.showTextButton)
-                _ToolButton(
-                  icon: Icons.text_fields_rounded,
-                  isSelected: currentTool == PdfAnnotationTool.text,
-                  onPressed: () => _handleToolSelect(PdfAnnotationTool.text),
-                  tooltip: 'Add Text',
-                  config: config,
-                ),
-              _Divider(config: config),
-              if (config.showUndoButton)
-                _ActionButton(
-                  icon: Icons.undo_rounded,
-                  onPressed: () => controller?.undo(),
-                  tooltip: 'Undo',
-                  config: config,
-                ),
-              if (config.showRedoButton)
-                _ActionButton(
-                  icon: Icons.redo_rounded,
-                  onPressed: () => controller?.redo(),
-                  tooltip: 'Redo',
-                  config: config,
-                ),
-              if (config.showClearButton)
-                _ActionButton(
-                  icon: Icons.delete_sweep_rounded,
-                  onPressed: () => controller?.clearAnnotations(),
-                  tooltip: 'Clear All',
-                  config: config,
-                ),
-              if (config.allowFullScreen ||
-                  config.showZoomButtons ||
-                  config.enableBookmarks ||
-                  config.showToolbarSettings)
-                _Divider(config: config),
-              if (config.allowFullScreen)
-                _ActionButton(
-                  icon: Icons.fullscreen_rounded,
-                  onPressed: onFullScreenPressed,
-                  tooltip: 'Full Screen',
-                  config: config,
-                ),
-              if (config.showZoomButtons) ...[
-                _ActionButton(
-                  icon: Icons.zoom_in_rounded,
-                  onPressed: () => controller?.zoomIn(),
-                  tooltip: 'Zoom In',
-                  config: config,
-                ),
-                _ActionButton(
-                  icon: Icons.zoom_out_rounded,
-                  onPressed: () => controller?.zoomOut(),
-                  tooltip: 'Zoom Out',
-                  config: config,
-                ),
-              ],
-              if (config.enableBookmarks) ...[
-                if (config.showBookmarkButton)
-                  _ActionButton(
-                    icon: isCurrentPageBookmarked
-                        ? Icons.bookmark_rounded
-                        : Icons.bookmark_border_rounded,
-                    onPressed: onBookmarkPressed,
-                    tooltip: isCurrentPageBookmarked
-                        ? 'Remove Bookmark'
-                        : 'Add Bookmark',
-                    config: config,
-                  ),
-                if (config.showBookmarksListButton)
-                  _ActionButton(
-                    icon: Icons.bookmarks_rounded,
-                    onPressed: onShowBookmarksPressed,
-                    tooltip: 'View Bookmarks',
-                    config: config,
-                  ),
-              ],
-              if (config.showToolbarSettings)
-                _ActionButton(
-                  icon: Icons.tune_rounded,
-                  onPressed: () => _showSettings(context),
-                  tooltip: 'Toolbar Settings',
-                  config: config,
-                ),
-            ],
+      child: AnimatedSize(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          child: IntrinsicHeight(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: _isSearching
+                  ? _buildSearchRow(localizations)
+                  : _buildDefaultRow(localizations),
+            ),
           ),
         ),
       ),
@@ -210,9 +130,243 @@ class PdfToolbar extends StatelessWidget {
     );
   }
 
+  List<Widget> _buildDefaultRow(PdfLocalizations localizations) {
+    return [
+      _ToolButton(
+        icon: Icons.pan_tool_alt_rounded,
+        isSelected: widget.currentTool == PdfAnnotationTool.none,
+        onPressed: () => _handleToolSelect(PdfAnnotationTool.none),
+        tooltip: localizations.pan,
+        activeColor: Colors.amber,
+        config: widget.config,
+      ),
+      if (widget.config.showDrawButton)
+        _ToolButton(
+          icon: Icons.edit_rounded,
+          isSelected: widget.currentTool == PdfAnnotationTool.draw,
+          onPressed: () => _handleToolSelect(PdfAnnotationTool.draw),
+          tooltip: localizations.draw,
+          config: widget.config,
+        ),
+      if (widget.config.showHighlightButton)
+        _ToolButton(
+          icon: Icons.brush_rounded,
+          isSelected: widget.currentTool == PdfAnnotationTool.highlight,
+          onPressed: () => _handleToolSelect(PdfAnnotationTool.highlight),
+          tooltip: localizations.highlight,
+          config: widget.config,
+          activeColor: Colors.cyan,
+        ),
+      if (widget.config.showUnderlineButton)
+        _ToolButton(
+          icon: Icons.format_underlined_rounded,
+          isSelected: widget.currentTool == PdfAnnotationTool.underline,
+          onPressed: () => _handleToolSelect(PdfAnnotationTool.underline),
+          tooltip: localizations.underline,
+          config: widget.config,
+        ),
+      if (widget.config.showTextButton)
+        _ToolButton(
+          icon: Icons.text_fields_rounded,
+          isSelected: widget.currentTool == PdfAnnotationTool.text,
+          onPressed: () => _handleToolSelect(PdfAnnotationTool.text),
+          tooltip: localizations.addText,
+          config: widget.config,
+        ),
+      _Divider(config: widget.config),
+      if (widget.config.showSearchButton)
+        _ActionButton(
+          icon: Icons.search_rounded,
+          onPressed: () {
+            setState(() {
+              _isSearching = true;
+            });
+          },
+          tooltip: localizations.search,
+          config: widget.config,
+        ),
+      if (widget.config.showUndoButton)
+        _ActionButton(
+          icon: Icons.undo_rounded,
+          onPressed: () => widget.controller?.undo(),
+          tooltip: localizations.undo,
+          config: widget.config,
+        ),
+      if (widget.config.showRedoButton)
+        _ActionButton(
+          icon: Icons.redo_rounded,
+          onPressed: () => widget.controller?.redo(),
+          tooltip: localizations.redo,
+          config: widget.config,
+        ),
+      if (widget.config.showClearButton)
+        _ActionButton(
+          icon: Icons.delete_sweep_rounded,
+          onPressed: () => widget.controller?.clearAnnotations(),
+          tooltip: localizations.clearAll,
+          config: widget.config,
+        ),
+      if (widget.config.allowFullScreen ||
+          widget.config.showZoomButtons ||
+          widget.config.enableBookmarks ||
+          widget.config.showToolbarSettings)
+        _Divider(config: widget.config),
+      if (widget.config.allowFullScreen)
+        _ActionButton(
+          icon: Icons.fullscreen_rounded,
+          onPressed: widget.onFullScreenPressed,
+          tooltip: localizations.fullScreen,
+          config: widget.config,
+        ),
+      if (widget.config.showZoomButtons) ...[
+        _ActionButton(
+          icon: Icons.zoom_in_rounded,
+          onPressed: () => widget.controller?.zoomIn(),
+          tooltip: localizations.zoomIn,
+          config: widget.config,
+        ),
+        _ActionButton(
+          icon: Icons.zoom_out_rounded,
+          onPressed: () => widget.controller?.zoomOut(),
+          tooltip: localizations.zoomOut,
+          config: widget.config,
+        ),
+      ],
+      if (widget.config.enableBookmarks) ...[
+        if (widget.config.showBookmarkButton)
+          _ActionButton(
+            icon: widget.isCurrentPageBookmarked
+                ? Icons.bookmark_rounded
+                : Icons.bookmark_border_rounded,
+            onPressed: widget.onBookmarkPressed,
+            tooltip: widget.isCurrentPageBookmarked
+                ? localizations.bookmarkRemoved
+                : localizations.bookmarkAdded,
+            config: widget.config,
+          ),
+        if (widget.config.showBookmarksListButton)
+          _ActionButton(
+            icon: Icons.bookmarks_rounded,
+            onPressed: widget.onShowBookmarksPressed,
+            tooltip: localizations.viewBookmarks,
+            config: widget.config,
+          ),
+      ],
+      if (widget.config.showToolbarSettings)
+        _ActionButton(
+          icon: Icons.tune_rounded,
+          onPressed: () => _showSettings(context),
+          tooltip: localizations.toolbarSettings,
+          config: widget.config,
+        ),
+    ];
+  }
+
+  List<Widget> _buildSearchRow(PdfLocalizations localizations) {
+    return [
+      _ActionButton(
+        icon: Icons.arrow_back_rounded,
+        onPressed: () {
+          setState(() {
+            _isSearching = false;
+            _isSearchLoading = false;
+            _searchController.clear();
+            _currentMatch = 0;
+            _totalMatches = 0;
+          });
+          widget.controller?.clearSearch();
+        },
+        tooltip: localizations.cancel,
+        config: widget.config,
+      ),
+      const SizedBox(width: 8),
+      SizedBox(
+        width: 180,
+        child: TextField(
+          controller: _searchController,
+          autofocus: true,
+          style: const TextStyle(fontSize: 14),
+          decoration: InputDecoration(
+            hintText: '${localizations.search}...',
+            border: InputBorder.none,
+            isDense: true,
+            hintStyle: TextStyle(
+              color: widget.config.toolbarStyle.inactiveColor ?? Colors.black54,
+            ),
+            suffixIcon: _isSearchLoading
+                ? Container(
+                    padding: const EdgeInsets.all(12),
+                    child: const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.grey),
+                      ),
+                    ),
+                  )
+                : null,
+            suffixIconConstraints: const BoxConstraints(
+              minWidth: 40,
+              minHeight: 40,
+            ),
+          ),
+          onSubmitted: (value) {
+            if (value.isNotEmpty) {
+              setState(() {
+                _isSearchLoading = true;
+              });
+              widget.controller?.searchText(value);
+            }
+          },
+        ),
+      ),
+      if (!_isSearchLoading && _totalMatches > 0) ...[
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Text(
+            localizations.searchResults(_currentMatch, _totalMatches),
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: widget.config.toolbarStyle.inactiveColor ?? Colors.black54,
+            ),
+          ),
+        ),
+        _ActionButton(
+          icon: Icons.keyboard_arrow_up_rounded,
+          onPressed: () => widget.controller?.previousSearchResult(),
+          tooltip: localizations.previous,
+          config: widget.config,
+        ),
+        _ActionButton(
+          icon: Icons.keyboard_arrow_down_rounded,
+          onPressed: () => widget.controller?.nextSearchResult(),
+          tooltip: localizations.next,
+          config: widget.config,
+        ),
+      ],
+      if (_searchController.text.isNotEmpty)
+        _ActionButton(
+          icon: Icons.close_rounded,
+          onPressed: () {
+            setState(() {
+              _searchController.clear();
+              _isSearchLoading = false;
+              _currentMatch = 0;
+              _totalMatches = 0;
+            });
+            widget.controller?.clearSearch();
+          },
+          tooltip: localizations.clearSearch,
+          config: widget.config,
+        ),
+    ];
+  }
+
   void _handleToolSelect(PdfAnnotationTool tool) {
     HapticFeedback.mediumImpact();
-    onToolSelected(tool);
+    widget.onToolSelected(tool);
   }
 
   void _showSettings(BuildContext context) {
@@ -222,10 +376,10 @@ class PdfToolbar extends StatelessWidget {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => _SettingsSheet(
-        initialConfig: config,
+        initialConfig: widget.config,
         localizations: localizations,
-        onStyleChanged: onStyleChanged,
-        onPositionChanged: onPositionChanged,
+        onStyleChanged: widget.onStyleChanged,
+        onPositionChanged: widget.onPositionChanged,
       ),
     );
   }
@@ -780,34 +934,6 @@ class _ThemePresetButton extends StatelessWidget {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ColorButton extends StatelessWidget {
-  final Color color;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _ColorButton({
-    required this.color,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 32,
-        height: 32,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          border: isSelected ? Border.all(color: Colors.black, width: 2) : null,
         ),
       ),
     );

@@ -53,6 +53,23 @@ class PdfLocalizations {
       'top': 'Top',
       'bottom': 'Bottom',
       'floating': 'Floating',
+      'pan': 'Pan',
+      'draw': 'Draw',
+      'highlight': 'Highlight',
+      'underline': 'Underline',
+      'undo': 'Undo',
+      'redo': 'Redo',
+      'clearAll': 'Clear All',
+      'fullScreen': 'Full Screen',
+      'zoomIn': 'Zoom In',
+      'zoomOut': 'Zoom Out',
+      'viewBookmarks': 'View Bookmarks',
+      'search': 'Search',
+      'searching': 'Searching...',
+      'next': 'Next',
+      'previous': 'Previous',
+      'results': '{current}/{total}',
+      'clearSearch': 'Clear Search',
     },
     PdfViewerLanguage.arabic: {
       'bookmarks': 'الصفحات المحفوظه',
@@ -79,6 +96,23 @@ class PdfLocalizations {
       'top': 'أعلى',
       'bottom': 'أسفل',
       'floating': 'عائم',
+      'pan': 'تحريك',
+      'draw': 'رسم',
+      'highlight': 'تحديد',
+      'underline': 'تسطير',
+      'undo': 'تراجع',
+      'redo': 'إعادة',
+      'clearAll': 'مسح الكل',
+      'fullScreen': 'ملء الشاشة',
+      'zoomIn': 'تكبير',
+      'zoomOut': 'تصغير',
+      'viewBookmarks': 'عرض المراجع',
+      'search': 'بحث',
+      'searching': 'جاري البحث...',
+      'next': 'التالي',
+      'previous': 'السابق',
+      'results': '{current}/{total}',
+      'clearSearch': 'مسح البحث',
     },
   };
 
@@ -128,6 +162,27 @@ class PdfLocalizations {
   String get top => _getString('top');
   String get bottom => _getString('bottom');
   String get floating => _getString('floating');
+  String get pan => _getString('pan');
+  String get draw => _getString('draw');
+  String get highlight => _getString('highlight');
+  String get underline => _getString('underline');
+  String get undo => _getString('undo');
+  String get redo => _getString('redo');
+  String get clearAll => _getString('clearAll');
+  String get fullScreen => _getString('fullScreen');
+  String get zoomIn => _getString('zoomIn');
+  String get zoomOut => _getString('zoomOut');
+  String get viewBookmarks => _getString('viewBookmarks');
+
+  // Search Strings
+  String get search => _getString('search');
+  String get searching => _getString('searching');
+  String get next => _getString('next');
+  String get previous => _getString('previous');
+  String searchResults(int current, int total) => _getString(
+    'results',
+  ).replaceAll('{current}', '$current').replaceAll('{total}', '$total');
+  String get clearSearch => _getString('clearSearch');
 
   /// Get localization from context or return default English
   static PdfLocalizations of(BuildContext context) {

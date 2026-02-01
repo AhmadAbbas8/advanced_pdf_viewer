@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.0
+
+- **Text Search**: Full-text search support on Android (PDFBox) and iOS (PDFKit) with native highlighting and navigation.
+- **Search UI**: Integrated search bar in the toolbar with a loading indicator, real-time result counting, and auto-focus.
+- **Search Navigation**: Smooth navigation between search results with "Next" and "Previous" actions.
+- **Localization**: Full internationalization for the entire toolbar (Pan, Draw, Highlight, Underline, Search, etc.) in English and Arabic.
+- **Android Engine**: Restructured native binding to resolve compilation errors and optimized memory usage for text extraction.
+- **UI/UX Polish**: Improved toolbar adaptive styling and resolved multiple lint issues.
+
 ## 0.7.0
 
 - **Bookmarks System**: Complete bookmark management (save, view, delete) with persistent storage implementation.

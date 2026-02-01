@@ -126,6 +126,10 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
     
     // Page tracking
     private var currentPage: Int = 0
+    
+    // Search tracking
+    private var searchResults: [PDFSelection] = []
+    private var currentSearchIndex: Int = -1
 
     init(
         frame: CGRect,
@@ -347,6 +351,23 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
             }
         case "getCurrentPage":
             result(currentPage)
+        case "searchText":
+            if let args = call.arguments as? [String: Any],
+               let query = args["query"] as? String {
+                searchText(query)
+                result(nil)
+            } else {
+                result(FlutterError(code: "INVALID_ARGUMENTS", message: "Query is required", details: nil))
+            }
+        case "nextSearchResult":
+            nextSearchResult()
+            result(nil)
+        case "previousSearchResult":
+            previousSearchResult()
+            result(nil)
+        case "clearSearch":
+            clearSearch()
+            result(nil)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -652,6 +673,60 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
                 }
             }
         }
+    }
+
+    private func searchText(_ query: String) {
+        guard let document = pdfView.document else { return }
+        
+        // Reset search
+        clearSearch()
+        
+        if query.isEmpty { return }
+        
+        // Find all matches
+        searchResults = document.findString(query, withOptions: [.caseInsensitive])
+        currentSearchIndex = -1
+        
+        if !searchResults.isEmpty {
+            currentSearchIndex = 0
+            showSearchResult(at: 0)
+        }
+        
+        notifySearchResults()
+    }
+    
+    private func nextSearchResult() {
+        guard !searchResults.isEmpty else { return }
+        currentSearchIndex = (currentSearchIndex + 1) % searchResults.count
+        showSearchResult(at: currentSearchIndex)
+        notifySearchResults()
+    }
+    
+    private func previousSearchResult() {
+        guard !searchResults.isEmpty else { return }
+        currentSearchIndex = (currentSearchIndex - 1 + searchResults.count) % searchResults.count
+        showSearchResult(at: currentSearchIndex)
+        notifySearchResults()
+    }
+    
+    private func clearSearch() {
+        searchResults = []
+        currentSearchIndex = -1
+        pdfView.currentSelection = nil
+        notifySearchResults()
+    }
+    
+    private func showSearchResult(at index: Int) {
+        let selection = searchResults[index]
+        pdfView.currentSelection = selection
+        pdfView.go(to: selection)
+    }
+    
+    private func notifySearchResults() {
+        methodChannel.invokeMethod("onSearchResultsChanged", arguments: [
+            "current": currentSearchIndex + 1,
+            "total": searchResults.count
+        ])
     }
 }
 

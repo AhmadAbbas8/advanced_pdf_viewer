@@ -161,6 +161,10 @@ class PdfViewerConfig {
   /// Whether to show the settings button for the user to customize the toolbar.
   final bool showToolbarSettings;
 
+  /// Whether to show the search button in the toolbar.
+  final bool showSearchButton;
+  
+
   const PdfViewerConfig({
     this.showDrawButton = true,
     this.showHighlightButton = true,
@@ -190,6 +194,7 @@ class PdfViewerConfig {
     this.toolbarPosition = PdfToolbarPosition.top,
     this.toolbarStyle = const PdfToolbarStyle(),
     this.showToolbarSettings = true,
+    this.showSearchButton = true,
   });
 
   PdfViewerConfig copyWith({
@@ -218,6 +223,7 @@ class PdfViewerConfig {
     PdfToolbarPosition? toolbarPosition,
     PdfToolbarStyle? toolbarStyle,
     bool? showToolbarSettings,
+    bool? showSearchButton,
   }) {
     return PdfViewerConfig(
       showDrawButton: showDrawButton ?? this.showDrawButton,
@@ -246,6 +252,7 @@ class PdfViewerConfig {
       toolbarPosition: toolbarPosition ?? this.toolbarPosition,
       toolbarStyle: toolbarStyle ?? this.toolbarStyle,
       showToolbarSettings: showToolbarSettings ?? this.showToolbarSettings,
+      showSearchButton: showSearchButton ?? this.showSearchButton,
     );
   }
 }

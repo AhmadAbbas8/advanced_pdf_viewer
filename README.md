@@ -15,6 +15,7 @@ A high-performance, feature-rich PDF viewer for Flutter with advanced annotation
 - 🇸🇦 **Arabic & RTL Support**: Built-in Arabic text shaping and BiDi reordering ensures Arabic annotations look perfect and connected.
 - 🔖 **Bookmarks System**: Save, view, and navigate bookmarks with persistent storage.
 - 🌍 **Internationalization**: Full English & Arabic support with RTL layout.
+- 🔍 **Text Search**: Powerful full-text search across the entire PDF with navigation and real-time highlighting.
 - 🔔 **Smart Notifications**: Beautiful, animated overlay toasts for actions.
 - ✏️ **Advanced Annotations**:
   - **Free-hand Drawing**: Smooth pen tool for sketching and signing.
@@ -95,17 +96,19 @@ Find the source code and contribute at: [https://github.com/AhmadAbbas8/advanced
 
 The `PdfViewerConfig` class allows you to customize the behavior and appearance of the viewer.
 
-| Property           | Description                         | Default         |
-| ------------------ | ----------------------------------- | --------------- |
-| `enableBookmarks`  | Enable the bookmarking system       | `false`         |
-| `language`         | UI Language (`english` or `arabic`) | `null` (Auto)   |
-| `toolbarColor`     | Background color of the toolbar     | `Colors.white`  |
-| `drawColor`        | Primary color for the drawing tool  | `Colors.red`    |
-| `highlightColor`   | Color used for text highlighting    | `Colors.yellow` |
-| `showUndoButton`   | Enable/Disable the undo button      | `true`          |
-| `allowFullScreen`  | Show full screen toggle             | `true`          |
-| `enablePageNumber` | Show page number indicator          | `false`         |
-| `onPageChanged`    | Callback when page changes          | `null`          |
+| Property              | Description                         | Default         |
+| --------------------- | ----------------------------------- | --------------- |
+| `enableBookmarks`     | Enable the bookmarking system       | `false`         |
+| `language`            | UI Language (`english` or `arabic`) | `null` (Auto)   |
+| `toolbarColor`        | Background color of the toolbar     | `Colors.white`  |
+| `drawColor`           | Primary color for the drawing tool  | `Colors.red`    |
+| `highlightColor`      | Color used for text highlighting    | `Colors.yellow` |
+| `showUndoButton`      | Enable/Disable the undo button      | `true`          |
+| `allowFullScreen`     | Show full screen toggle             | `true`          |
+| `enablePageNumber`    | Show page number indicator          | `false`         |
+| `showToolbarSettings` | Enable the settings bottom sheet    | `true`          |
+| `showSearchButton`    | Show text search button             | `true`          |
+| `onPageChanged`       | Callback when page changes          | `null`          |
 
 ## License
 

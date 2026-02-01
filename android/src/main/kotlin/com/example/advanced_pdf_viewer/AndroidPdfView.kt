@@ -94,6 +94,10 @@ class AndroidPdfView(
     // Page tracking
     private var currentPage: Int = 0
     
+    // Search tracking
+    private var searchResults = mutableListOf<SearchMatch>()
+    private var currentSearchIndex = -1
+    
     private val undoStack = Stack<Annotation>()
     private val redoStack = Stack<Annotation>()
     
@@ -460,6 +464,23 @@ class AndroidPdfView(
             "getCurrentPage" -> {
                 result.success(currentPage)
             }
+            "searchText" -> {
+                val query = call.argument<String>("query") ?: ""
+                searchText(query)
+                result.success(null)
+            }
+            "nextSearchResult" -> {
+                nextSearchResult()
+                result.success(null)
+            }
+            "previousSearchResult" -> {
+                previousSearchResult()
+                result.success(null)
+            }
+            "clearSearch" -> {
+                clearSearch()
+                result.success(null)
+            }
             else -> result.notImplemented()
         }
     }
@@ -823,7 +844,7 @@ class AndroidPdfView(
                         val matches = locator.lineMatches
                         post {
                             if (matches.isNotEmpty()) {
-                                for (bounds in matches) {
+                                matches.forEach { bounds ->
                                     val h = if (currentTool == "highlight") bounds.height() else 8f
                                     val yOffset = if (currentTool == "highlight") 0f else bounds.height() - 2f
                                     
@@ -924,6 +945,32 @@ class AndroidPdfView(
             val scale = getScale()
             if (scale == 0f) return
             val invScale = 1f / scale
+
+            // Draw search results
+            val highlightPaint = Paint().apply {
+                color = Color.YELLOW
+                alpha = 100
+                style = Paint.Style.FILL
+            }
+            val currentHighlightPaint = Paint().apply {
+                color = Color.parseColor("#FF9800") // Orange
+                alpha = 150
+                style = Paint.Style.FILL
+            }
+
+            for (i in searchResults.indices) {
+                val match = searchResults[i]
+                if (match.pageIndex == pageIndex) {
+                    val p = if (i == currentSearchIndex) currentHighlightPaint else highlightPaint
+                    canvas.drawRect(
+                        match.rect.left * invScale,
+                        match.rect.top * invScale,
+                        match.rect.right * invScale,
+                        match.rect.bottom * invScale,
+                        p
+                    )
+                }
+            }
             
             for (anno in undoStack) {
                 if (anno.pageIndex != pageIndex) continue
@@ -1004,235 +1051,327 @@ class AndroidPdfView(
         val color: Int = Color.BLACK,
         val points: List<PointF>? = null
     )
-}
 
-/**
- * Helper to find text positions on a page.
- */
-class TextLocator(val targetPage: Int, val tapX: Float, val tapY: Float) : com.tom_roush.pdfbox.text.PDFTextStripper() {
-    var bestMatch: RectF? = null
-    private var minDist = Float.MAX_VALUE
+    private fun searchText(query: String) {
+        clearSearch()
+        if (query.isEmpty()) return
 
-    init {
-        sortByPosition = true
-        startPage = targetPage + 1
-        endPage = targetPage + 1
-    }
-
-    fun getTextPositions(doc: com.tom_roush.pdfbox.pdmodel.PDDocument) {
-        try {
-            getText(doc)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    override fun writeString(text: String?, textPositions: MutableList<com.tom_roush.pdfbox.text.TextPosition>?) {
-        if (textPositions == null || textPositions.isEmpty()) return
-        
-        val currentWord = mutableListOf<com.tom_roush.pdfbox.text.TextPosition>()
-        
-        for (pos in textPositions) {
-            val c = pos.unicode
-            if (c == " " || c == "\t" || c == "\n" || c == "\r") {
-                 checkWord(currentWord)
-                 currentWord.clear()
-            } else {
-                currentWord.add(pos)
+        interactionExecutor.execute {
+            val document = interactionDocument ?: return@execute
+            val results = mutableListOf<SearchMatch>()
+            
+            try {
+                synchronized(pdfBoxLock) {
+                    for (i in 0 until document.numberOfPages) {
+                        val stripper = SearchStripper(i, query)
+                        stripper.getText(document)
+                        results.addAll(stripper.matches)
+                    }
+                }
+                
+                mainHandler.post {
+                    searchResults.addAll(results)
+                    if (searchResults.isNotEmpty()) {
+                        currentSearchIndex = 0
+                        jumpToMatch(searchResults[0])
+                    }
+                    refreshAllViews()
+                    notifySearchResults()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
-        checkWord(currentWord)
     }
 
-    private fun checkWord(word: List<com.tom_roush.pdfbox.text.TextPosition>) {
-        if (word.isEmpty()) return
-        
-        var minX = Float.MAX_VALUE
-        var maxX = 0f
-        var minY = Float.MAX_VALUE
-        var maxY = 0f
-        
-        for (p in word) {
-             minX = Math.min(minX, p.xDirAdj)
-             maxX = Math.max(maxX, p.xDirAdj + p.width)
-             minY = Math.min(minY, p.yDirAdj - p.height)
-             maxY = Math.max(maxY, p.yDirAdj)
-        }
-        
-        val wordRect = RectF(minX, minY, maxX, maxY)
-        val touchRect = RectF(minX - 20, minY - 15, maxX + 20, maxY + 15)
-        
-        if (touchRect.contains(tapX, tapY)) {
-             val distY = Math.abs(wordRect.centerY() - tapY)
-             val distX = Math.abs(wordRect.centerX() - tapX)
-             val dist = distY + distX
-             
-             if (dist < minDist) {
-                 minDist = dist
-                 bestMatch = wordRect
-             }
-        }
-    }
-}
-
-/**
- * Helper to find text positions within a range on a page.
- */
-class TextRangeLocator(val targetPage: Int, val x1: Float, val y1: Float, val x2: Float, val y2: Float) : com.tom_roush.pdfbox.text.PDFTextStripper() {
-    val lineMatches = mutableListOf<RectF>()
-    
-    private val selectionRect = RectF(
-        Math.min(x1, x2), Math.min(y1, y2),
-        Math.max(x1, x2), Math.max(y1, y2)
-    )
-
-    init {
-        sortByPosition = true
-        startPage = targetPage + 1
-        endPage = targetPage + 1
+    private fun nextSearchResult() {
+        if (searchResults.isEmpty()) return
+        currentSearchIndex = (currentSearchIndex + 1) % searchResults.size
+        jumpToMatch(searchResults[currentSearchIndex])
+        refreshAllViews()
+        notifySearchResults()
     }
 
-    fun getTextPositions(doc: com.tom_roush.pdfbox.pdmodel.PDDocument) {
-        try {
-            getText(doc)
-        } catch (e: Exception) {
-            e.printStackTrace()
+    private fun previousSearchResult() {
+        if (searchResults.isEmpty()) return
+        currentSearchIndex = (currentSearchIndex - 1 + searchResults.size) % searchResults.size
+        jumpToMatch(searchResults[currentSearchIndex])
+        refreshAllViews()
+        notifySearchResults()
+    }
+
+    private fun clearSearch() {
+        searchResults.clear()
+        currentSearchIndex = -1
+        refreshAllViews()
+        notifySearchResults()
+    }
+
+    private fun jumpToMatch(match: SearchMatch) {
+        (layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(match.pageIndex, 0)
+    }
+
+    private fun notifySearchResults() {
+        mainHandler.post {
+            methodChannel.invokeMethod("onSearchResultsChanged", mapOf(
+                "current" to currentSearchIndex + 1,
+                "total" to searchResults.size
+            ))
         }
     }
 
-    override fun writeString(text: String?, textPositions: MutableList<com.tom_roush.pdfbox.text.TextPosition>?) {
-        if (textPositions == null || textPositions.isEmpty()) return
-        
-        var lineMinX = Float.MAX_VALUE
-        var lineMaxX = 0f
-        var lineMinY = Float.MAX_VALUE
-        var lineMaxY = 0f
-        var foundInLine = false
+    class SearchMatch(val pageIndex: Int, val rect: RectF)
 
-        for (pos in textPositions) {
-            val charRect = RectF(pos.xDirAdj, pos.yDirAdj - pos.height, pos.xDirAdj + pos.width, pos.yDirAdj)
-            if (RectF.intersects(selectionRect, charRect)) {
-                foundInLine = true
-                lineMinX = Math.min(lineMinX, pos.xDirAdj)
-                lineMaxX = Math.max(lineMaxX, pos.xDirAdj + pos.width)
-                lineMinY = Math.min(lineMinY, pos.yDirAdj - pos.height)
-                lineMaxY = Math.max(lineMaxY, pos.yDirAdj)
+    class SearchStripper(val pageIndex: Int, val query: String) : com.tom_roush.pdfbox.text.PDFTextStripper() {
+        val matches = mutableListOf<SearchMatch>()
+
+        init {
+            sortByPosition = true
+            startPage = pageIndex + 1
+            endPage = pageIndex + 1
+        }
+
+        override fun writeString(text: String?, textPositions: MutableList<com.tom_roush.pdfbox.text.TextPosition>?) {
+            if (text == null || textPositions == null || query.isEmpty()) return
+            
+            var startIndex = 0
+            while (true) {
+                val index = text.indexOf(query, startIndex, ignoreCase = true)
+                if (index == -1) break
+                
+                val matchPositions = textPositions.subList(index, index + query.length)
+                if (matchPositions.isNotEmpty()) {
+                    var minX = Float.MAX_VALUE
+                    var maxX = 0f
+                    var minY = Float.MAX_VALUE
+                    var maxY = 0f
+                    
+                    for (pos in matchPositions) {
+                        minX = Math.min(minX, pos.xDirAdj)
+                        maxX = Math.max(maxX, pos.xDirAdj + pos.width)
+                        minY = Math.min(minY, pos.yDirAdj - pos.height)
+                        maxY = Math.max(maxY, pos.yDirAdj)
+                    }
+                    matches.add(SearchMatch(pageIndex, RectF(minX, minY, maxX, maxY)))
+                }
+                startIndex = index + 1
+            }
+        }
+    }
+
+    /**
+     * Helper to find text positions on a page.
+     */
+    class TextLocator(val targetPage: Int, val tapX: Float, val tapY: Float) : com.tom_roush.pdfbox.text.PDFTextStripper() {
+        var bestMatch: RectF? = null
+        private var minDist = Float.MAX_VALUE
+
+        init {
+            sortByPosition = true
+            startPage = targetPage + 1
+            endPage = targetPage + 1
+        }
+
+        fun getTextPositions(doc: com.tom_roush.pdfbox.pdmodel.PDDocument) {
+            try {
+                getText(doc)
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
 
-        if (foundInLine) {
-            lineMatches.add(RectF(lineMinX, lineMinY, lineMaxX, lineMaxY))
+        override fun writeString(text: String?, textPositions: MutableList<com.tom_roush.pdfbox.text.TextPosition>?) {
+            if (textPositions == null || textPositions.isEmpty()) return
+            
+            val currentWord = mutableListOf<com.tom_roush.pdfbox.text.TextPosition>()
+            
+            for (pos in textPositions) {
+                val c = pos.unicode
+                if (c == " " || c == "\t" || c == "\n" || c == "\r") {
+                     checkWord(currentWord)
+                     currentWord.clear()
+                } else {
+                    currentWord.add(pos)
+                }
+            }
+            checkWord(currentWord)
+        }
+
+        private fun checkWord(word: List<com.tom_roush.pdfbox.text.TextPosition>) {
+            if (word.isEmpty()) return
+            
+            var minX = Float.MAX_VALUE
+            var maxX = 0f
+            var minY = Float.MAX_VALUE
+            var maxY = 0f
+            
+            for (p in word) {
+                 minX = Math.min(minX, p.xDirAdj)
+                 maxX = Math.max(maxX, p.xDirAdj + p.width)
+                 minY = Math.min(minY, p.yDirAdj - p.height)
+                 maxY = Math.max(maxY, p.yDirAdj)
+            }
+            
+            val wordRect = RectF(minX, minY, maxX, maxY)
+            val touchRect = RectF(minX - 20, minY - 15, maxX + 20, maxY + 15)
+            
+            if (touchRect.contains(tapX, tapY)) {
+                 val distY = Math.abs(wordRect.centerY() - tapY)
+                 val distX = Math.abs(wordRect.centerX() - tapX)
+                 val dist = distY + distX
+                 
+                 if (dist < minDist) {
+                     minDist = dist
+                     bestMatch = wordRect
+                 }
+            }
         }
     }
-}
 
-object ArabicShaper {
-    // Map of Arabic characters to their (Isolated, Initial, Medial, Final) forms
-    private val SHAPING_MAP = mapOf(
-        '\u0627' to charArrayOf('\uFE8D', '\u0627', '\u0627', '\uFE8E'), // ALIF
-        '\u0628' to charArrayOf('\uFE8F', '\uFE91', '\uFE92', '\uFE90'), // BA
-        '\u062A' to charArrayOf('\uFE95', '\uFE97', '\uFE98', '\uFE96'), // TA
-        '\u062B' to charArrayOf('\uFE99', '\uFE9B', '\uFE9C', '\uFE9A'), // THA
-        '\u062C' to charArrayOf('\uFE9D', '\uFE9F', '\uFEA0', '\uFE9E'), // JEEM
-        '\u062D' to charArrayOf('\uFEA1', '\uFEA3', '\uFEA4', '\uFEA2'), // HAA
-        '\u062E' to charArrayOf('\uFEA5', '\uFEA7', '\uFEA8', '\uFEA6'), // KHAA
-        '\u062F' to charArrayOf('\uFEA9', '\u062F', '\u062F', '\uFEAA'), // DAL
-        '\u0630' to charArrayOf('\uFEAB', '\u0630', '\u0630', '\uFEAC'), // THAL
-        '\u0631' to charArrayOf('\uFEAD', '\u0631', '\u0631', '\uFEAE'), // RA
-        '\u0632' to charArrayOf('\uFEAF', '\u0632', '\u0632', '\uFEB0'), // ZAY
-        '\u0633' to charArrayOf('\uFEB1', '\uFEB3', '\uFEB4', '\uFEB2'), // SEEN
-        '\u0634' to charArrayOf('\uFEB5', '\uFEB7', '\uFEB8', '\uFEB6'), // SHEEN
-        '\u0635' to charArrayOf('\uFEB9', '\uFEBB', '\uFEBC', '\uFEBA'), // SAD
-        '\u0636' to charArrayOf('\uFEBD', '\uFEBF', '\uFEC0', '\uFEBE'), // DAD
-        '\u0637' to charArrayOf('\uFEC1', '\uFEC3', '\uFEC4', '\uFEC2'), // TAH
-        '\u0638' to charArrayOf('\uFEC5', '\uFEC7', '\uFEC8', '\uFEC6'), // ZAH
-        '\u0639' to charArrayOf('\uFEC9', '\uFECB', '\uFECC', '\uFECA'), // AIN
-        '\u063A' to charArrayOf('\uFECD', '\uFECF', '\uFED0', '\uFECE'), // GHAIN
-        '\u0641' to charArrayOf('\uFED1', '\uFED3', '\uFED4', '\uFED2'), // FA
-        '\u0642' to charArrayOf('\uFED5', '\uFED7', '\uFED8', '\uFED6'), // QAF
-        '\u0643' to charArrayOf('\uFED9', '\uFEDB', '\uFEDC', '\uFEDA'), // KAF
-        '\u0644' to charArrayOf('\uFEDD', '\uFEDF', '\uFEE0', '\uFEDE'), // LAM
-        '\u0645' to charArrayOf('\uFEE1', '\uFEE3', '\uFEE4', '\uFEE2'), // MEEM
-        '\u0646' to charArrayOf('\uFEE5', '\uFEE7', '\uFEE8', '\uFEE6'), // NOON
-        '\u0647' to charArrayOf('\uFEE9', '\uFEEB', '\uFEEC', '\uFEEA'), // HA
-        '\u0648' to charArrayOf('\uFEED', '\u0648', '\u0648', '\uFEEE'), // WAW
-        '\u064A' to charArrayOf('\uFEF1', '\uFEF3', '\uFEF4', '\uFEF2'), // YA
-        '\u0626' to charArrayOf('\uFE89', '\uFE8B', '\uFE8C', '\uFE8A'), // YAA WITH HAMZA
-        '\u0622' to charArrayOf('\uFE81', '\u0622', '\u0622', '\uFE82'), // ALIF WITH MADDA
-        '\u0623' to charArrayOf('\uFE83', '\u0623', '\u0623', '\uFE84'), // ALIF WITH HAMZA ABOVE
-        '\u0625' to charArrayOf('\uFE87', '\u0625', '\u0625', '\uFE88'), // ALIF WITH HAMZA BELOW
-        '\u0624' to charArrayOf('\uFE85', '\u0624', '\u0624', '\uFE86'), // WAW WITH HAMZA
-        '\u0649' to charArrayOf('\uFEEF', '\u0649', '\u0649', '\uFEF0'), // ALEF MAKSURA
-        '\u0629' to charArrayOf('\uFE93', '\u0629', '\u0629', '\uFE94')  // TAA MARBUTA
-    )
+    /**
+     * Helper to find text positions within a range on a page.
+     */
+    class TextRangeLocator(val targetPage: Int, val x1: Float, val y1: Float, val x2: Float, val y2: Float) : com.tom_roush.pdfbox.text.PDFTextStripper() {
+        val lineMatches = mutableListOf<RectF>()
+        
+        private val selectionRect = RectF(
+            Math.min(x1, x2), Math.min(y1, y2),
+            Math.max(x1, x2), Math.max(y1, y2)
+        )
 
-    fun shape(text: String): String {
-        if (text.isEmpty()) return text
-        
-        // 1. Shaping (Char substitution)
-        val shaped = shapeArabicForms(text)
-        
-        // 2. BiDi Reordering
-        val bidi = Bidi(shaped, Bidi.DIRECTION_DEFAULT_LEFT_TO_RIGHT)
-        if (!bidi.isMixed && !bidi.isRightToLeft) return shaped
-        
-        val count = bidi.runCount
-        val runs = mutableListOf<String>()
-        for (i in 0 until count) {
-            val start = bidi.getRunStart(i)
-            val end = bidi.getRunLimit(i)
-            var sub = shaped.substring(start, end)
-            if (bidi.getRunLevel(i) % 2 != 0) {
-                sub = sub.reversed()
-            }
-            runs.add(sub)
+        init {
+            sortByPosition = true
+            startPage = targetPage + 1
+            endPage = targetPage + 1
         }
-        
-        return if (bidi.isRightToLeft) runs.reversed().joinToString("") else runs.joinToString("")
-    }
 
-    private fun shapeArabicForms(text: String): String {
-        val result = StringBuilder()
-        for (i in 0 until text.length) {
-            val c = text[i]
-            val forms = SHAPING_MAP[c]
-            if (forms == null) {
-                result.append(c)
-                continue
+        fun getTextPositions(doc: com.tom_roush.pdfbox.pdmodel.PDDocument) {
+            try {
+                getText(doc)
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-
-            val prev = if (i > 0) text[i - 1] else null
-            val next = if (i < text.length - 1) text[i + 1] else null
-
-            val linkPrev = prev != null && canLinkLeft(prev)
-            val linkNext = next != null && canLinkRight(next)
-
-            val form = when {
-                linkPrev && linkNext -> forms[2] // Medial
-                linkPrev -> forms[3] // Final
-                linkNext -> forms[1] // Initial
-                else -> forms[0] // Isolated
-            }
-            result.append(form)
         }
-        return result.toString()
+
+        override fun writeString(text: String?, textPositions: MutableList<com.tom_roush.pdfbox.text.TextPosition>?) {
+            if (textPositions == null || textPositions.isEmpty()) return
+            
+            var lineMinX = Float.MAX_VALUE
+            var lineMaxX = 0f
+            var lineMinY = Float.MAX_VALUE
+            var lineMaxY = 0f
+            var foundInLine = false
+
+            for (pos in textPositions) {
+                val charRect = RectF(pos.xDirAdj, pos.yDirAdj - pos.height, pos.xDirAdj + pos.width, pos.yDirAdj)
+                if (RectF.intersects(selectionRect, charRect)) {
+                    foundInLine = true
+                    lineMinX = Math.min(lineMinX, pos.xDirAdj)
+                    lineMaxX = Math.max(lineMaxX, pos.xDirAdj + pos.width)
+                    lineMinY = Math.min(lineMinY, pos.yDirAdj - pos.height)
+                    lineMaxY = Math.max(lineMaxY, pos.yDirAdj)
+                }
+            }
+
+            if (foundInLine) {
+                lineMatches.add(RectF(lineMinX, lineMinY, lineMaxX, lineMaxY))
+            }
+        }
     }
 
-    private fun canLinkLeft(c: Char): Boolean {
-        // Characters that can link with the following character
-        val forms = SHAPING_MAP[c] ?: return false
-        // Index 1 (Initial) or 2 (Medial) must not be original to be linkable right
-        return forms[1] != c || forms[2] != c
-    }
+    object ArabicShaper {
+        private val SHAPING_MAP = mapOf(
+            '\u0627' to charArrayOf('\uFE8D', '\u0627', '\u0627', '\uFE8E'),
+            '\u0628' to charArrayOf('\uFE8F', '\uFE91', '\uFE92', '\uFE90'),
+            '\u062A' to charArrayOf('\uFE95', '\uFE97', '\uFE98', '\uFE96'),
+            '\u062B' to charArrayOf('\uFE99', '\uFE9B', '\uFE9C', '\uFE9A'),
+            '\u062C' to charArrayOf('\uFE9D', '\uFE9F', '\uFEA0', '\uFE9E'),
+            '\u062D' to charArrayOf('\uFEA1', '\uFEA3', '\uFEA4', '\uFEA2'),
+            '\u062E' to charArrayOf('\uFEA5', '\uFEA7', '\uFEA8', '\uFEA6'),
+            '\u062F' to charArrayOf('\uFEA9', '\u062F', '\u062F', '\uFEAA'),
+            '\u0630' to charArrayOf('\uFEAB', '\u0630', '\u0630', '\uFEAC'),
+            '\u0631' to charArrayOf('\uFEAD', '\u0631', '\u0631', '\uFEAE'),
+            '\u0632' to charArrayOf('\uFEAF', '\u0632', '\u0632', '\uFEB0'),
+            '\u0633' to charArrayOf('\uFEB1', '\uFEB3', '\uFEB4', '\uFEB2'),
+            '\u0634' to charArrayOf('\uFEB5', '\uFEB7', '\uFEB8', '\uFEB6'),
+            '\u0635' to charArrayOf('\uFEB9', '\uFEBB', '\uFEBC', '\uFEBA'),
+            '\u0636' to charArrayOf('\uFEBD', '\uFEBF', '\uFEC0', '\uFEBE'),
+            '\u0637' to charArrayOf('\uFEC1', '\uFEC3', '\uFEC4', '\uFEC2'),
+            '\u0638' to charArrayOf('\uFEC5', '\uFEC7', '\uFEC8', '\uFEC6'),
+            '\u0639' to charArrayOf('\uFEC9', '\uFECB', '\uFECC', '\uFECA'),
+            '\u063A' to charArrayOf('\uFECD', '\uFECF', '\uFED0', '\uFECE'),
+            '\u0641' to charArrayOf('\uFED1', '\uFED3', '\uFED4', '\uFED2'),
+            '\u0642' to charArrayOf('\uFED5', '\uFED7', '\uFED8', '\uFED6'),
+            '\u0643' to charArrayOf('\uFED9', '\uFEDB', '\uFEDC', '\uFEDA'),
+            '\u0644' to charArrayOf('\uFEDD', '\uFEDF', '\uFEE0', '\uFEDE'),
+            '\u0645' to charArrayOf('\uFEE1', '\uFEE3', '\uFEE4', '\uFEE2'),
+            '\u0646' to charArrayOf('\uFEE5', '\uFEE7', '\uFEE8', '\uFEE6'),
+            '\u0647' to charArrayOf('\uFEE9', '\uFEEB', '\uFEEC', '\uFEEA'),
+            '\u0648' to charArrayOf('\uFEED', '\u0648', '\u0648', '\uFEEE'),
+            '\u064A' to charArrayOf('\uFEF1', '\uFEF3', '\uFEF4', '\uFEF2'),
+            '\u0626' to charArrayOf('\uFE89', '\uFE8B', '\uFE8C', '\uFE8A'),
+            '\u0622' to charArrayOf('\uFE81', '\u0622', '\u0622', '\uFE82'),
+            '\u0623' to charArrayOf('\uFE83', '\u0623', '\u0623', '\uFE84'),
+            '\u0625' to charArrayOf('\uFE87', '\u0625', '\u0625', '\uFE88'),
+            '\u0624' to charArrayOf('\uFE85', '\u0624', '\u0624', '\uFE86'),
+            '\u0649' to charArrayOf('\uFEEF', '\u0649', '\u0649', '\uFEF0'),
+            '\u0629' to charArrayOf('\uFE93', '\u0629', '\u0629', '\uFE94')
+        )
 
-    private fun canLinkRight(c: Char): Boolean {
-        // Characters that can link with the previous character
-        return SHAPING_MAP.containsKey(c)
-    }
+        fun shape(text: String): String {
+            if (text.isEmpty()) return text
+            val shaped = shapeArabicForms(text)
+            val bidi = Bidi(shaped, Bidi.DIRECTION_DEFAULT_LEFT_TO_RIGHT)
+            if (!bidi.isMixed && !bidi.isRightToLeft) return shaped
+            val count = bidi.runCount
+            val runs = mutableListOf<String>()
+            for (i in 0 until count) {
+                val start = bidi.getRunStart(i)
+                val end = bidi.getRunLimit(i)
+                var sub = shaped.substring(start, end)
+                if (bidi.getRunLevel(i) % 2 != 0) sub = sub.reversed()
+                runs.add(sub)
+            }
+            return if (bidi.isRightToLeft) runs.reversed().joinToString("") else runs.joinToString("")
+        }
 
-    fun isArabic(c: Char): Boolean {
-        return (c in '\u0600'..'\u06FF') || (c in '\u0750'..'\u077F') || 
-               (c in '\u08A0'..'\u08FF') || (c in '\uFB50'..'\uFDFF') || 
-               (c in '\uFE70'..'\uFEFF')
+        private fun shapeArabicForms(text: String): String {
+            val result = StringBuilder()
+            for (i in 0 until text.length) {
+                val c = text[i]
+                val forms = SHAPING_MAP[c]
+                if (forms == null) {
+                    result.append(c)
+                    continue
+                }
+                val prev = if (i > 0) text[i - 1] else null
+                val next = if (i < text.length - 1) text[i + 1] else null
+                val linkPrev = prev != null && canLinkLeft(prev)
+                val linkNext = next != null && canLinkRight(next)
+                val form = when {
+                    linkPrev && linkNext -> forms[2]
+                    linkPrev -> forms[3]
+                    linkNext -> forms[1]
+                    else -> forms[0]
+                }
+                result.append(form)
+            }
+            return result.toString()
+        }
+
+        private fun canLinkLeft(c: Char): Boolean {
+            val forms = SHAPING_MAP[c] ?: return false
+            return forms[1] != c || forms[2] != c
+        }
+
+        private fun canLinkRight(c: Char): Boolean {
+            return SHAPING_MAP.containsKey(c)
+        }
+
+        fun isArabic(c: Char): Boolean {
+            return (c in '\u0600'..'\u06FF') || (c in '\u0750'..'\u077F') || 
+                   (c in '\u08A0'..'\u08FF') || (c in '\uFB50'..'\uFDFF') || 
+                   (c in '\uFE70'..'\uFEFF')
+        }
     }
 }

@@ -8,6 +8,7 @@ class AdvancedPdfViewerController {
   MethodChannel? _channel;
   Function(double x, double y, int pageIndex)? _onPdfTapped;
   Function(int page)? _onPageChanged;
+  Function(int currentMatch, int totalMatches)? _onSearchResultsChanged;
   int _currentPage = 0;
 
   /// Sets the method channel and initializes the tap handler.
@@ -24,6 +25,12 @@ class AdvancedPdfViewerController {
       } else if (call.method == 'onPageChanged') {
         final int page = (call.arguments as int?) ?? 0;
         _handlePageChanged(page);
+      } else if (call.method == 'onSearchResultsChanged') {
+        final Map<dynamic, dynamic> args =
+            call.arguments as Map<dynamic, dynamic>;
+        final int current = (args['current'] as int?) ?? 0;
+        final int total = (args['total'] as int?) ?? 0;
+        _onSearchResultsChanged?.call(current, total);
       }
     });
   }
@@ -36,6 +43,13 @@ class AdvancedPdfViewerController {
   /// Sets a callback for when the current page changes.
   void setOnPageChanged(Function(int page) callback) {
     _onPageChanged = callback;
+  }
+
+  /// Sets a callback for search results changes.
+  void setOnSearchResultsChanged(
+    Function(int currentMatch, int totalMatches) callback,
+  ) {
+    _onSearchResultsChanged = callback;
   }
 
   /// Handles page change events from the native platform.
@@ -150,11 +164,32 @@ class AdvancedPdfViewerController {
     return _currentPage;
   }
 
+  /// Searches for text in the PDF.
+  Future<void> searchText(String query) async {
+    await _channel?.invokeMethod('searchText', {'query': query});
+  }
+
+  /// Navigates to the next search result.
+  Future<void> nextSearchResult() async {
+    await _channel?.invokeMethod('nextSearchResult');
+  }
+
+  /// Navigates to the previous search result.
+  Future<void> previousSearchResult() async {
+    await _channel?.invokeMethod('previousSearchResult');
+  }
+
+  /// Clears the current search highlights and results.
+  Future<void> clearSearch() async {
+    await _channel?.invokeMethod('clearSearch');
+  }
+
   /// Disposes of the controller and its resources.
   void dispose() {
     _channel?.setMethodCallHandler(null);
     _channel = null;
     _onPdfTapped = null;
     _onPageChanged = null;
+    _onSearchResultsChanged = null;
   }
 }
