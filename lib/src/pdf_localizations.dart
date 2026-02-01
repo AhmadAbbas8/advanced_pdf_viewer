@@ -46,6 +46,13 @@ class PdfLocalizations {
       'bookmarkRemoved': 'Bookmark removed',
       'error': 'Error: {error}',
       'notSupported': '{platform} is not supported',
+      'toolbarSettings': 'Toolbar Settings',
+      'position': 'Position',
+      'theme': 'Theme',
+      'transparency': 'Transparency',
+      'top': 'Top',
+      'bottom': 'Bottom',
+      'floating': 'Floating',
     },
     PdfViewerLanguage.arabic: {
       'bookmarks': 'الصفحات المحفوظه',
@@ -65,6 +72,13 @@ class PdfLocalizations {
       'bookmarkRemoved': 'تمت إزالة الصفحة ك مرجع',
       'error': 'خطأ: {error}',
       'notSupported': '{platform} غير مدعوم',
+      'toolbarSettings': 'إعدادات شريط الأدوات',
+      'position': 'الموقع',
+      'theme': 'المظهر',
+      'transparency': 'الشفافية',
+      'top': 'أعلى',
+      'bottom': 'أسفل',
+      'floating': 'عائم',
     },
   };
 
@@ -105,6 +119,15 @@ class PdfLocalizations {
       _getString('error').replaceAll('{error}', error);
   String platformNotSupported(String platform) =>
       _getString('notSupported').replaceAll('{platform}', platform);
+
+  // Toolbar Settings Strings
+  String get toolbarSettings => _getString('toolbarSettings');
+  String get position => _getString('position');
+  String get theme => _getString('theme');
+  String get transparency => _getString('transparency');
+  String get top => _getString('top');
+  String get bottom => _getString('bottom');
+  String get floating => _getString('floating');
 
   /// Get localization from context or return default English
   static PdfLocalizations of(BuildContext context) {

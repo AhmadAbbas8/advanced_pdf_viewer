@@ -155,6 +155,15 @@ class _MyAppState extends State<MyApp> {
                             showBookmarkButton: true,
                             enableBookmarks: true,
                             showBookmarksListButton: true,
+                            // showToolbarSettings: false,
+                            toolbarStyle: PdfToolbarStyle(
+                              // activeColor: Colors.red,
+                              // inactiveColor: Colors.black,
+                              // useBlur: true,
+                              // blurSigma: 100,
+                              // backgroundColor: Colors.orange,
+                              // elevation: 20,
+                            ),
 
                             // bookmarkStorageKey: ,
                             highlightColor: Color(

@@ -1,6 +1,89 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'pdf_localizations.dart';
+
+/// Position of the toolbar in the viewer.
+enum PdfToolbarPosition {
+  /// At the top of the viewer.
+  top,
+
+  /// At the bottom of the viewer.
+  bottom,
+
+  /// Floating at the top-center.
+  floating,
+}
+
+/// Style configuration for the PDF toolbar.
+class PdfToolbarStyle {
+  /// Background color of the toolbar.
+  final Color? backgroundColor;
+
+  /// Elevation (shadow) of the toolbar.
+  final double elevation;
+
+  /// Corner radius of the toolbar.
+  final BorderRadius? borderRadius;
+
+  /// Color for active/selected tools.
+  final Color? activeColor;
+
+  /// Color for inactive tools.
+  final Color? inactiveColor;
+
+  /// Whether to use a blur effect (glassmorphism).
+  final bool useBlur;
+
+  /// Blur intensity (sigma) if [useBlur] is true.
+  final double blurSigma;
+
+  /// Optional gradient for the toolbar background.
+  final Gradient? gradient;
+
+  /// Margin around the toolbar.
+  final EdgeInsetsGeometry? margin;
+
+  /// Spacing between toolbar items.
+  final double itemSpacing;
+
+  const PdfToolbarStyle({
+    this.backgroundColor,
+    this.elevation = 8.0,
+    this.borderRadius,
+    this.activeColor,
+    this.inactiveColor,
+    this.useBlur = true,
+    this.blurSigma = 15.0,
+    this.gradient,
+    this.margin,
+    this.itemSpacing = 8.0,
+  });
+
+  PdfToolbarStyle copyWith({
+    Color? backgroundColor,
+    double? elevation,
+    BorderRadius? borderRadius,
+    Color? activeColor,
+    Color? inactiveColor,
+    bool? useBlur,
+    double? blurSigma,
+    Gradient? gradient,
+    EdgeInsetsGeometry? margin,
+    double? itemSpacing,
+  }) {
+    return PdfToolbarStyle(
+      backgroundColor: backgroundColor ?? this.backgroundColor,
+      elevation: elevation ?? this.elevation,
+      borderRadius: borderRadius ?? this.borderRadius,
+      activeColor: activeColor ?? this.activeColor,
+      inactiveColor: inactiveColor ?? this.inactiveColor,
+      useBlur: useBlur ?? this.useBlur,
+      blurSigma: blurSigma ?? this.blurSigma,
+      gradient: gradient ?? this.gradient,
+      margin: margin ?? this.margin,
+      itemSpacing: itemSpacing ?? this.itemSpacing,
+    );
+  }
+}
 
 class PdfViewerConfig {
   /// Whether to show the drawing tool button.
@@ -69,6 +152,15 @@ class PdfViewerConfig {
   /// Language for UI strings. If null, will try to use InheritedWidget or default to English.
   final PdfViewerLanguage? language;
 
+  /// Position of the toolbar.
+  final PdfToolbarPosition toolbarPosition;
+
+  /// Style configuration for the toolbar.
+  final PdfToolbarStyle toolbarStyle;
+
+  /// Whether to show the settings button for the user to customize the toolbar.
+  final bool showToolbarSettings;
+
   const PdfViewerConfig({
     this.showDrawButton = true,
     this.showHighlightButton = true,
@@ -81,7 +173,10 @@ class PdfViewerConfig {
     this.showZoomButtons = true,
     this.onFullScreenInit,
     this.toolbarColor,
-    this.toolbarPadding = const EdgeInsets.symmetric(horizontal: 8.0),
+    this.toolbarPadding = const EdgeInsets.symmetric(
+      horizontal: 12.0,
+      vertical: 6,
+    ),
     this.drawColor = Colors.red,
     this.highlightColor = const Color(0x80FFFF00), // Semi-transparent yellow
     this.underlineColor = Colors.blue,
@@ -92,6 +187,9 @@ class PdfViewerConfig {
     this.bookmarkStorageKey,
     this.onPageChanged,
     this.language,
+    this.toolbarPosition = PdfToolbarPosition.top,
+    this.toolbarStyle = const PdfToolbarStyle(),
+    this.showToolbarSettings = true,
   });
 
   PdfViewerConfig copyWith({
@@ -117,6 +215,9 @@ class PdfViewerConfig {
     String? bookmarkStorageKey,
     Function(int page)? onPageChanged,
     PdfViewerLanguage? language,
+    PdfToolbarPosition? toolbarPosition,
+    PdfToolbarStyle? toolbarStyle,
+    bool? showToolbarSettings,
   }) {
     return PdfViewerConfig(
       showDrawButton: showDrawButton ?? this.showDrawButton,
@@ -142,6 +243,9 @@ class PdfViewerConfig {
       bookmarkStorageKey: bookmarkStorageKey ?? this.bookmarkStorageKey,
       onPageChanged: onPageChanged ?? this.onPageChanged,
       language: language ?? this.language,
+      toolbarPosition: toolbarPosition ?? this.toolbarPosition,
+      toolbarStyle: toolbarStyle ?? this.toolbarStyle,
+      showToolbarSettings: showToolbarSettings ?? this.showToolbarSettings,
     );
   }
 }

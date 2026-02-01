@@ -78,9 +78,15 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
   int _currentPage = 0;
   bool _isCurrentPageBookmarked = false;
 
+  // Runtime toolbar customization state
+  late PdfToolbarPosition _toolbarPosition;
+  late PdfToolbarStyle _toolbarStyle;
+
   @override
   void initState() {
     super.initState();
+    _toolbarPosition = widget.config.toolbarPosition;
+    _toolbarStyle = widget.config.toolbarStyle;
     widget.controller?.setOnPdfTapped(_onPdfTapped);
     if (widget.config.enableBookmarks) {
       widget.controller?.setOnPageChanged(_onPageChanged);
@@ -123,6 +129,10 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
         underlineColor: widget.config.underlineColor,
         enablePageNumber: widget.config.enablePageNumber,
       );
+      setState(() {
+        _toolbarPosition = widget.config.toolbarPosition;
+        _toolbarStyle = widget.config.toolbarStyle;
+      });
     }
   }
 
@@ -423,16 +433,20 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
         _buildNativeView(),
         if (widget.showToolbar)
           SafeArea(
-            bottom: false,
+            bottom: _toolbarPosition == PdfToolbarPosition.bottom,
+            top: _toolbarPosition != PdfToolbarPosition.bottom,
             child: Align(
-              alignment: Alignment.topCenter,
+              alignment: _getToolbarAlignment(),
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                padding: _getToolbarPadding(),
                 child: PdfToolbar(
                   currentTool: _currentTool,
                   onToolSelected: _onToolSelected,
                   controller: widget.controller,
-                  config: widget.config,
+                  config: widget.config.copyWith(
+                    toolbarPosition: _toolbarPosition,
+                    toolbarStyle: _toolbarStyle,
+                  ),
                   onFullScreenPressed: _onFullScreen,
                   onBookmarkPressed: widget.config.enableBookmarks
                       ? _handleBookmarkPressed
@@ -441,12 +455,34 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
                       ? _handleShowBookmarks
                       : null,
                   isCurrentPageBookmarked: _isCurrentPageBookmarked,
+                  onStyleChanged: (style) =>
+                      setState(() => _toolbarStyle = style),
+                  onPositionChanged: (pos) =>
+                      setState(() => _toolbarPosition = pos),
                 ),
               ),
             ),
           ),
       ],
     );
+  }
+
+  Alignment _getToolbarAlignment() {
+    switch (_toolbarPosition) {
+      case PdfToolbarPosition.top:
+        return Alignment.topCenter;
+      case PdfToolbarPosition.bottom:
+        return Alignment.bottomCenter;
+      case PdfToolbarPosition.floating:
+        return Alignment.topCenter;
+    }
+  }
+
+  EdgeInsets _getToolbarPadding() {
+    if (_toolbarPosition == PdfToolbarPosition.floating) {
+      return const EdgeInsets.fromLTRB(16, 24, 16, 0);
+    }
+    return const EdgeInsets.all(16.0);
   }
 
   Widget _buildNativeView() {
