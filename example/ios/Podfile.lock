@@ -84,7 +84,7 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/shared_preferences_foundation/darwin"
 
 SPEC CHECKSUMS:
-  advanced_pdf_viewer: 9aaab1eea4a192ef68c8b5cff232b42738178b8b
+  advanced_pdf_viewer: 4a25ce603e6eeb46c64ccc91ff76abcae3c4e1ab
   DKImagePickerController: 946cec48c7873164274ecc4624d19e3da4c1ef3c
   DKPhotoGallery: b3834fecb755ee09a593d7c9e389d8b5d6deed60
   file_picker: a0560bc09d61de87f12d246fc47d2119e6ef37be

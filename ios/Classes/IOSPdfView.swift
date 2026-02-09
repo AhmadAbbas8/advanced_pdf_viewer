@@ -468,10 +468,25 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
     private var lastSelectionUpdateTime: TimeInterval = 0
     private let selectionUpdateInterval: TimeInterval = 0.016 // ~60fps cap
     
+    // Helper to check if a page has selectable text content
+    // Uses Objective-C exception handling to safely access page.string
+    private func pageHasText(_ page: PDFPage) -> Bool {
+        guard let pageText = ObjCExceptionHandler.safelyGetPageString(page) else { return false }
+        return !pageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    
     private func handleSelectionPan(_ gesture: UIPanGestureRecognizer) {
         let location = gesture.location(in: pdfView)
         // Safety check for valid page
         guard let page = pdfView.page(for: location, nearest: true) else { return }
+        
+        // CRITICAL: Check if page has text BEFORE attempting any selection
+        // This prevents Objective-C level crashes that Swift try-catch cannot handle
+        guard pageHasText(page) else {
+            print("Page has no text content (image-only PDF) - skipping selection")
+            return
+        }
+        
         let pagePoint = pdfView.convert(location, to: page)
         
         switch gesture.state {
@@ -483,15 +498,16 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
             let currentTime = Date().timeIntervalSince1970
             if currentTime - lastSelectionUpdateTime > selectionUpdateInterval {
                 if let start = selectionStartPoint {
-                    do {
-                        DispatchQueue.main.async { [weak self] in
-                            if let selection = page.selection(from: start, to: pagePoint),
-                               let selectionString = selection.string, !selectionString.isEmpty {
-                                self?.pdfView.currentSelection = selection
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self = self else { return }
+                        
+                        // Use ObjC exception handler to safely create selection
+                        if let selection = ObjCExceptionHandler.safelyCreateSelection(from: start, to: pagePoint, on: page) {
+                            // Validate selection has actual text content
+                            if let selectionString = selection.string, !selectionString.isEmpty {
+                                self.pdfView.currentSelection = selection
                             }
                         }
-                    } catch {
-                        print("Selection error during pan: \(error)")
                     }
                 }
                 lastSelectionUpdateTime = currentTime
@@ -501,19 +517,15 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 
-                do {
-                    if let start = self.selectionStartPoint {
-                        if let selection = page.selection(from: start, to: pagePoint),
-                           let selectionString = selection.string, !selectionString.isEmpty {
+                if let start = self.selectionStartPoint {
+                    // Use ObjC exception handler to safely create selection
+                    if let selection = ObjCExceptionHandler.safelyCreateSelection(from: start, to: pagePoint, on: page) {
+                        // Validate selection has actual text content
+                        if let selectionString = selection.string, !selectionString.isEmpty {
                             self.pdfView.currentSelection = selection
+                            self.addAnnotationsForSelection(selection)
                         }
                     }
-                    
-                    if let selection = self.pdfView.currentSelection {
-                        self.addAnnotationsForSelection(selection)
-                    }
-                } catch {
-                    print("Selection error at end: \(error)")
                 }
                 
                 self.pdfView.currentSelection = nil
@@ -529,7 +541,14 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
         let annotationType: PDFAnnotationSubtype = currentTool == "highlight" ? .highlight : .underline
         let color = currentTool == "highlight" ? highlightColor : underlineColor
         
+        // Early validation: ensure selection has pages and text content
         guard !selection.pages.isEmpty else { return }
+        
+        // Validate selection has actual text content - critical for image-only PDFs
+        guard let selectionText = selection.string, !selectionText.isEmpty else {
+            print("Selection has no text content (image-only PDF) - skipping annotation")
+            return
+        }
         
         // Dispatch to background thread to avoid blocking UI
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -604,11 +623,22 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
         guard currentTool == "highlight" || currentTool == "underline" else { return }
         
         guard let page = pdfView.page(for: location, nearest: true) else { return }
+        
+        // CRITICAL: Check if page has text BEFORE attempting selection
+        // This prevents Objective-C level crashes that Swift try-catch cannot handle
+        guard pageHasText(page) else {
+            print("Page has no text content (image-only PDF) - skipping tap selection")
+            return
+        }
+        
         let pagePoint = pdfView.convert(location, to: page)
         
-        // Try to find text selection at point
-        if let selection = page.selectionForLine(at: pagePoint) {
-           addAnnotationsForSelection(selection)
+        // Use ObjC exception handler to safely get line selection
+        if let selection = ObjCExceptionHandler.safelyGetSelectionForLine(at: pagePoint, on: page) {
+            // Validate selection has actual text content
+            if let selectionString = selection.string, !selectionString.isEmpty {
+                addAnnotationsForSelection(selection)
+            }
         }
     }
 

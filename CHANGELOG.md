@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.0
+
+- **iOS Crash Fix**: Fixed critical iOS crash when highlighting or underlining image-based PDFs (scanned documents without text layers).
+- **Exception Handling**: Implemented Objective-C exception handlers to safely catch and handle PDFKit exceptions that Swift cannot catch.
+- **Stability**: Added proactive text content detection before attempting selection operations to prevent crashes at the Objective-C level.
+
 ## 0.9.0
 
 - **Color Selection**: Added dynamic color selection for all drawing tools (Draw, Highlight, Underline, Text).
