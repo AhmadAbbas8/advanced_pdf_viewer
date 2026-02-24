@@ -34,12 +34,14 @@ class _MyAppState extends State<MyApp> {
       _bytes = null;
       // _url = 'https://easy.easy-stream.net/pdfs/d3982bb2-9eec-4167-9194-dfea5082022e.pdf';
       // _url ='https://easy.easy-stream.net/pdfs/7070626f-9557-4331-b152-faf7cf76a0fc.pdf';
-      // _url =
-          // 'https://easy.easy-stream.net/pdfs/c05d15da-c41b-4858-9afe-defb0a693312.pdf';
-      _url= 'https://easy.easy-stream.net/pdfs/3f7d29e1-6d89-413f-ae83-f3086bafe565.pdf';
+      _url =
+          'https://easy.easy-stream.net/pdfs/c05d15da-c41b-4858-9afe-defb0a693312.pdf';
+      // _url= 'https://easy.easy-stream.net/pdfs/3f7d29e1-6d89-413f-ae83-f3086bafe565.pdf';
+      // _url= 'https://easy.easy-stream.net/pdfs/73bdf5e6-f4d6-44d3-9148-14f08a8f3219.pdf';
     });
   }
-
+  
+ 
   Future<void> _loadBytesPdf() async {
     // For demo, we'll download it first and then use bytes
     final response = await http.get(
