@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.0
+
+- **Enhanced Search**: Significantly improved Arabic text search accuracy with advanced normalization, character form handling (ligatures, presentation forms), and sophisticated regex patterns.
+- **Highlights & Annotations**: Refactored Android text annotations to use an overlay system for better control over positioning and resizing.
+- **Annotation Precision**: Fixed text annotation commit positions to ensure saved coordinates precisely match the overlay position.
+
 ## 0.10.0
 
 - **iOS Crash Fix**: Fixed critical iOS crash when highlighting or underlining image-based PDFs (scanned documents without text layers).
