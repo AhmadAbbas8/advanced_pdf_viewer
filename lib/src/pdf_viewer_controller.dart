@@ -98,12 +98,17 @@ class AdvancedPdfViewerController {
   }
 
   /// Adds text annotation at a specific location.
+  /// [x], [y] are the original tap coordinates in native coordinate space.
+  /// [deltaX], [deltaY] are the drag offset in screen/widget pixels.
   Future<void> addTextAnnotation(
     String text,
     double x,
     double y,
     int pageIndex, {
     Color? color,
+    double fontSize = 14.0,
+    double deltaX = 0.0,
+    double deltaY = 0.0,
   }) async {
     await _channel?.invokeMethod('addTextAnnotation', {
       'text': text,
@@ -111,6 +116,9 @@ class AdvancedPdfViewerController {
       'y': y,
       'pageIndex': pageIndex,
       'color': color?.value,
+      'fontSize': fontSize,
+      'deltaX': deltaX,
+      'deltaY': deltaY,
     });
   }
 

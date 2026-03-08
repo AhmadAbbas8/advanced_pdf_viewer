@@ -72,6 +72,8 @@ class PdfLocalizations {
       'clearSearch': 'Clear Search',
       'selectColor': 'Select Color',
       'customColor': 'Custom Color',
+      'deleteText': 'Delete Text',
+      'textSize': 'Text Size',
     },
     PdfViewerLanguage.arabic: {
       'bookmarks': 'الصفحات المحفوظه',
@@ -117,6 +119,8 @@ class PdfLocalizations {
       'clearSearch': 'مسح البحث',
       'selectColor': 'اختر اللون',
       'customColor': 'لون مخصص',
+      'deleteText': 'حذف النص',
+      'textSize': 'حجم النص',
     },
   };
 
@@ -189,6 +193,8 @@ class PdfLocalizations {
   String get clearSearch => _getString('clearSearch');
   String get selectColor => _getString('selectColor');
   String get customColor => _getString('customColor');
+  String get deleteText => _getString('deleteText');
+  String get textSize => _getString('textSize');
 
   /// Get localization from context or return default English
   static PdfLocalizations of(BuildContext context) {

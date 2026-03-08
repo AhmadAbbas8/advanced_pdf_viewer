@@ -371,12 +371,85 @@ class AndroidPdfView(
             "savePdf" -> savePdf(result)
             "addTextAnnotation" -> {
                 val text = call.argument<String>("text")
-                val x = getDoubleArg(call, "x")?.toFloat() ?: 0f
-                val y = getDoubleArg(call, "y")?.toFloat() ?: 0f
+                val origX = getDoubleArg(call, "x")?.toFloat() ?: 0f
+                val origY = getDoubleArg(call, "y")?.toFloat() ?: 0f
                 val pageIndex = getIntArg(call, "pageIndex") ?: 0
                 val color = getIntArg(call, "color") ?: Color.BLACK
-                if (text != null) { addAnnotation(Annotation(pageIndex, "text", x, y, 200f, 50f, text, color)); result.success(null) }
-                else result.error("INVALID_ARGUMENTS", "Text is required", null)
+                val fontSize = getDoubleArg(call, "fontSize")?.toFloat() ?: 14f
+                val deltaX = getDoubleArg(call, "deltaX")?.toFloat() ?: 0f
+                val deltaY = getDoubleArg(call, "deltaY")?.toFloat() ?: 0f
+
+                val finalLogicalX = origX + deltaX
+                val finalLogicalY = origY + deltaY
+                val density = recyclerView.context.resources.displayMetrics.density
+                val physX = finalLogicalX * density
+                val physY = finalLogicalY * density
+
+                val unscaledX = (physX - translateX) / currentScale
+                val unscaledY = (physY - translateY) / currentScale
+
+                var targetChild: AnnotationImageView? = null
+                var targetPageIndex = pageIndex
+
+                // Hit-test which page the text was dropped on
+                for (i in 0 until recyclerView.childCount) {
+                    val view = recyclerView.getChildAt(i)
+                    if (unscaledY >= view.top && unscaledY <= view.bottom) {
+                        if (view is ViewGroup && view.childCount > 0) {
+                            targetChild = view.getChildAt(0) as? AnnotationImageView
+                        }
+                        targetPageIndex = recyclerView.getChildAdapterPosition(view)
+                        break
+                    }
+                }
+
+                // If dragged out of bounds, clamp to first or last visible view
+                if (targetChild == null && recyclerView.childCount > 0) {
+                    if (unscaledY < recyclerView.getChildAt(0).top) {
+                        val view = recyclerView.getChildAt(0)
+                        if (view is ViewGroup && view.childCount > 0) {
+                            targetChild = view.getChildAt(0) as? AnnotationImageView
+                        }
+                        targetPageIndex = recyclerView.getChildAdapterPosition(view)
+                    } else {
+                        val view = recyclerView.getChildAt(recyclerView.childCount - 1)
+                        if (view is ViewGroup && view.childCount > 0) {
+                            targetChild = view.getChildAt(0) as? AnnotationImageView
+                        }
+                        targetPageIndex = recyclerView.getChildAdapterPosition(view)
+                    }
+                }
+
+                // Fallback to original pageIndex if still null
+                if (targetChild == null) {
+                    val view = (recyclerView.layoutManager as LinearLayoutManager).findViewByPosition(pageIndex)
+                    if (view is ViewGroup && view.childCount > 0) {
+                        targetChild = view.getChildAt(0) as? AnnotationImageView
+                    }
+                }
+
+                if (targetChild != null) {
+                    // Adjust unscaled coordinates by the container's top offset AND the image view's top offset
+                    // targetChild.parent gives the LinearLayout container.
+                    val parentView = targetChild.parent as? View
+                    val parentTop = parentView?.top ?: 0
+                    val parentLeft = parentView?.left ?: 0
+                    
+                    val localX = unscaledX - parentLeft - targetChild.left
+                    val localY = unscaledY - parentTop - targetChild.top
+                    val scale = if (targetChild.width == 0) 1f else targetChild.pdfWidth / targetChild.width.toFloat()
+                    val pdfX = localX * scale
+                    val pdfY = localY * scale
+
+                    if (text != null) {
+                        addAnnotation(Annotation(targetPageIndex, "text", pdfX, pdfY, 200f, 50f, text, color, fontSize = fontSize))
+                        result.success(null)
+                    } else {
+                        result.error("INVALID_ARGUMENTS", "Text is required", null)
+                    }
+                } else {
+                    result.error("VIEW_NOT_FOUND", "Page view not found", null)
+                }
             }
             "jumpToPage" -> { (layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(getIntArg(call, "page") ?: 0, 0); result.success(null) }
             "getTotalPages" -> result.success(pdfRenderer?.pageCount ?: 0)
@@ -518,9 +591,18 @@ class AndroidPdfView(
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
                 val scale = getScale()
                 val px = e.x * scale; val py = e.y * scale
+
                 return when (currentTool) {
                     "text" -> {
-                        methodChannel.invokeMethod("onPdfTapped", mapOf("x" to px, "y" to py, "pageIndex" to pageIndex))
+                        val locRv = IntArray(2)
+                        recyclerView.getLocationOnScreen(locRv)
+                        val physX = e.rawX - locRv[0]
+                        val physY = e.rawY - locRv[1]
+                        val density = resources.displayMetrics.density
+                        val logicalX = physX / density
+                        val logicalY = physY / density
+                        
+                        methodChannel.invokeMethod("onPdfTapped", mapOf("x" to logicalX, "y" to logicalY, "pageIndex" to pageIndex))
                         true
                     }
                     "highlight", "underline" -> {
@@ -1086,7 +1168,7 @@ class AndroidPdfView(
                 if (anno.pageIndex != pageIndex) continue
                 when (anno.type) {
                     "text" -> {
-                        val tp = Paint().apply { color = anno.color; textSize = 14f * inv; isFakeBoldText = true }
+                        val tp = Paint().apply { color = anno.color; textSize = anno.fontSize * inv; isFakeBoldText = true }
                         canvas.drawText(anno.text ?: "", anno.x * inv, anno.y * inv, tp)
                     }
                     "highlight" -> {
@@ -1260,7 +1342,7 @@ class AndroidPdfView(
                             "text" -> drawMixedText(
                                 PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true, true),
                                 ArabicShaper.shape(anno.text ?: ""), anno.x, anno.y, pageHeight,
-                                font!!, com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA_BOLD, 14f, anno.color
+                                font!!, com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA_BOLD, anno.fontSize, anno.color
                             )
                             "draw" -> {
                                 val points = anno.points ?: continue
@@ -1297,7 +1379,8 @@ class AndroidPdfView(
         val pageIndex: Int, val type: String,
         val x: Float, val y: Float, val w: Float, val h: Float,
         val text: String? = null, val color: Int = Color.BLACK,
-        val points: List<PointF>? = null
+        val points: List<PointF>? = null,
+        val fontSize: Float = 14f
     )
 
     class SearchMatch(val pageIndex: Int, val rect: RectF)

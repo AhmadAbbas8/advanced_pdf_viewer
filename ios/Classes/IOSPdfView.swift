@@ -325,8 +325,13 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
             if let args = call.arguments as? [String: Any],
                let text = args["text"] as? String,
                let x = args["x"] as? Double, let y = args["y"] as? Double {
-                addTextAnnotation(text: text, at: CGPoint(x: x, y: y),
-                                  color: (args["color"] as? Int).map { UIColor(argb: $0) })
+                let fontSize = (args["fontSize"] as? Double) ?? 14.0
+                let deltaX = (args["deltaX"] as? Double) ?? 0.0
+                let deltaY = (args["deltaY"] as? Double) ?? 0.0
+                let finalPoint = CGPoint(x: x + deltaX, y: y + deltaY)
+                addTextAnnotation(text: text, at: finalPoint,
+                                  color: (args["color"] as? Int).map { UIColor(argb: $0) },
+                                  fontSize: CGFloat(fontSize))
                 result(nil)
             } else {
                 result(FlutterError(code: "INVALID_ARGUMENTS", message: "Text, x, and y are required", details: nil))
@@ -562,6 +567,7 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
     @objc func handleTap(_ gesture: UITapGestureRecognizer) {
         let loc = gesture.location(in: pdfView)
         if currentTool == "text" {
+            // Send raw loc coordinates to Flutter so the overlay positions exactly under the finger
             methodChannel.invokeMethod("onPdfTapped", arguments: ["x": loc.x, "y": loc.y])
             return
         }
@@ -1021,16 +1027,21 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
         }
     }
 
-    private func addTextAnnotation(text: String, at point: CGPoint, color: UIColor?) {
+    private func addTextAnnotation(text: String, at point: CGPoint, color: UIColor?, fontSize: CGFloat = 14.0) {
         guard let pg = pdfView.page(for: point, nearest: true) else { return }
         let pt = pdfView.convert(point, to: pg)
-        let ann = PDFAnnotation(bounds: CGRect(x: pt.x, y: pt.y, width: 200, height: 50),
+        let boundsHeight = max(fontSize * 1.5, 20)
+        let ann = PDFAnnotation(bounds: CGRect(x: pt.x, y: pt.y, width: 200, height: boundsHeight),
                                 forType: .freeText, withProperties: nil)
         ann.contents  = text
-        ann.font      = UIFont.systemFont(ofSize: 14)
+        ann.font      = UIFont.systemFont(ofSize: fontSize)
         ann.fontColor = color ?? .black
         ann.color     = .clear
         pg.addAnnotation(ann)
+        if let doc = pdfView.document {
+            undoStack.append(AnnotationReference(annotation: ann, pageIndex: doc.index(for: pg)))
+            redoStack.removeAll()
+        }
     }
 
     private func clearAnnotations() {

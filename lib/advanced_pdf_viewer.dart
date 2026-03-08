@@ -86,6 +86,15 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
   late Color _underlineColor;
   late Color _textColor;
 
+  // Draggable text annotation overlay state
+  OverlayEntry? _textOverlayEntry;
+  String? _pendingText;
+  int _pendingPageIndex = 0;
+  Offset _textOverlayPosition = Offset.zero;
+  double _textFontSize = 14.0;
+  double _nativeTapX = 0.0;
+  double _nativeTapY = 0.0;
+
   @override
   void initState() {
     super.initState();
@@ -150,6 +159,7 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
 
   @override
   void dispose() {
+    _removeTextOverlay();
     if (!widget.useCache && _localPath != null) {
       _cleanupCache();
     }
@@ -246,14 +256,69 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
     );
 
     if (result != null && result.isNotEmpty) {
-      widget.controller?.addTextAnnotation(
-        result,
-        x,
-        y,
-        pageIndex,
-        color: _textColor,
-      );
+      _showDraggableTextOverlay(result, x, y, pageIndex);
     }
+  }
+
+  void _showDraggableTextOverlay(
+    String text,
+    double x,
+    double y,
+    int pageIndex,
+  ) {
+    _removeTextOverlay();
+    _pendingText = text;
+    _pendingPageIndex = pageIndex;
+    _textFontSize = 14.0;
+    _nativeTapX = x;
+    _nativeTapY = y;
+
+    // Get widget's global position to convert native coords to screen coords
+    final RenderBox? renderBox = context.findRenderObject() as RenderBox?;
+    if (renderBox == null) return;
+    final globalOffset = renderBox.localToGlobal(Offset.zero);
+
+    // Position overlay in screen space:
+    // We assume x and y from native give us the exact tap position relative to the platform view
+    _textOverlayPosition = Offset(x + globalOffset.dx, y + globalOffset.dy);
+
+    _textOverlayEntry = OverlayEntry(
+      builder: (_) => _DraggableTextOverlay(
+        text: _pendingText!,
+        initialPosition: _textOverlayPosition,
+        initialFontSize: _textFontSize,
+        textColor: _textColor,
+        onConfirm: (Offset finalPosition, double finalFontSize) {
+          // Calculate drag delta in screen pixels
+          final deltaX = finalPosition.dx - _textOverlayPosition.dx;
+          final deltaY = finalPosition.dy - _textOverlayPosition.dy;
+
+          // Send original native coords + delta to native
+          widget.controller?.addTextAnnotation(
+            _pendingText!,
+            _nativeTapX,
+            _nativeTapY,
+            _pendingPageIndex,
+            color: _textColor,
+            fontSize: finalFontSize,
+            deltaX: deltaX,
+            deltaY: deltaY,
+          );
+          _removeTextOverlay();
+        },
+        onDelete: () {
+          _removeTextOverlay();
+        },
+      ),
+    );
+
+    Overlay.of(context).insert(_textOverlayEntry!);
+  }
+
+  void _removeTextOverlay() {
+    _textOverlayEntry?.remove();
+    _textOverlayEntry = null;
+    _pendingText = null;
   }
 
   Future<void> _handleBookmarkPressed() async {
@@ -553,5 +618,253 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
     if (_currentTool != PdfAnnotationTool.none) {
       _onToolSelected(_currentTool);
     }
+  }
+}
+
+/// A draggable, resizable text overlay that allows the user to position text
+/// on the PDF before confirming or deleting.
+class _DraggableTextOverlay extends StatefulWidget {
+  final String text;
+  final Offset initialPosition;
+  final double initialFontSize;
+  final Color textColor;
+  final void Function(Offset finalPosition, double finalFontSize) onConfirm;
+  final VoidCallback onDelete;
+
+  const _DraggableTextOverlay({
+    required this.text,
+    required this.initialPosition,
+    required this.initialFontSize,
+    required this.textColor,
+    required this.onConfirm,
+    required this.onDelete,
+  });
+
+  @override
+  State<_DraggableTextOverlay> createState() => _DraggableTextOverlayState();
+}
+
+class _DraggableTextOverlayState extends State<_DraggableTextOverlay>
+    with SingleTickerProviderStateMixin {
+  late Offset _position;
+  late double _fontSize;
+  late AnimationController _animController;
+  late Animation<double> _scaleAnim;
+
+  static const double _minFontSize = 8.0;
+  static const double _maxFontSize = 48.0;
+  static const double _fontSizeStep = 2.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _position = widget.initialPosition;
+    _fontSize = widget.initialFontSize;
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 250),
+    );
+    _scaleAnim = CurvedAnimation(
+      parent: _animController,
+      curve: Curves.easeOutBack,
+    );
+    _animController.forward();
+  }
+
+  @override
+  void dispose() {
+    _animController.dispose();
+    super.dispose();
+  }
+
+  void _increaseFontSize() {
+    setState(() {
+      _fontSize = (_fontSize + _fontSizeStep).clamp(_minFontSize, _maxFontSize);
+    });
+  }
+
+  void _decreaseFontSize() {
+    setState(() {
+      _fontSize = (_fontSize - _fontSizeStep).clamp(_minFontSize, _maxFontSize);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        // Semi-transparent backdrop (dismissible on tap)
+        Positioned.fill(
+          child: GestureDetector(
+            onTap: widget.onDelete,
+            child: Container(color: Colors.black.withAlpha(30)),
+          ),
+        ),
+        // Draggable text + action bar
+        Positioned(
+          left: _position.dx,
+          top: _position.dy,
+          child: ScaleTransition(
+            scale: _scaleAnim,
+            alignment: Alignment.topLeft,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // The draggable text
+                GestureDetector(
+                  onPanUpdate: (details) {
+                    setState(() {
+                      _position += details.delta;
+                    });
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(230),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: widget.textColor.withAlpha(150),
+                        width: 1.5,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withAlpha(40),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.drag_indicator,
+                          size: 18,
+                          color: Colors.grey.shade500,
+                        ),
+                        const SizedBox(width: 4),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 250),
+                          child: Text(
+                            widget.text,
+                            style: TextStyle(
+                              color: widget.textColor,
+                              fontSize: _fontSize,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                // Action bar
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withAlpha(50),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 2,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Decrease font size
+                      _ActionButton(
+                        icon: Icons.text_decrease,
+                        onTap: _decreaseFontSize,
+                        tooltip: 'A−',
+                      ),
+                      // Font size indicator
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: Text(
+                          '${_fontSize.round()}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ),
+                      // Increase font size
+                      _ActionButton(
+                        icon: Icons.text_increase,
+                        onTap: _increaseFontSize,
+                        tooltip: 'A+',
+                      ),
+                      Container(
+                        width: 1,
+                        height: 20,
+                        color: Colors.grey.shade300,
+                        margin: const EdgeInsets.symmetric(horizontal: 4),
+                      ),
+                      // Confirm
+                      _ActionButton(
+                        icon: Icons.check_circle,
+                        color: Colors.green,
+                        onTap: () => widget.onConfirm(_position, _fontSize),
+                        tooltip: '✓',
+                      ),
+                      // Delete
+                      _ActionButton(
+                        icon: Icons.cancel,
+                        color: Colors.red,
+                        onTap: widget.onDelete,
+                        tooltip: '✗',
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Small icon button used in the text overlay action bar.
+class _ActionButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  final Color? color;
+  final String? tooltip;
+
+  const _ActionButton({
+    required this.icon,
+    required this.onTap,
+    this.color,
+    this.tooltip,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(6),
+          child: Icon(icon, size: 20, color: color ?? Colors.grey.shade700),
+        ),
+      ),
+    );
   }
 }

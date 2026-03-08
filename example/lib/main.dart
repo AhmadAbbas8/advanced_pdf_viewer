@@ -32,16 +32,15 @@ class _MyAppState extends State<MyApp> {
   Future<void> _loadNetworkPdf() async {
     setState(() {
       _bytes = null;
-      // _url = 'https://easy.easy-stream.net/pdfs/d3982bb2-9eec-4167-9194-dfea5082022e.pdf';
+      _url = 'https://easy.easy-stream.net/pdfs/d3982bb2-9eec-4167-9194-dfea5082022e.pdf';
       // _url ='https://easy.easy-stream.net/pdfs/7070626f-9557-4331-b152-faf7cf76a0fc.pdf';
-      _url =
-          'https://easy.easy-stream.net/pdfs/c05d15da-c41b-4858-9afe-defb0a693312.pdf';
+      // _url =
+      //     'https://easy.easy-stream.net/pdfs/c05d15da-c41b-4858-9afe-defb0a693312.pdf';
       // _url= 'https://easy.easy-stream.net/pdfs/3f7d29e1-6d89-413f-ae83-f3086bafe565.pdf';
       // _url= 'https://easy.easy-stream.net/pdfs/73bdf5e6-f4d6-44d3-9148-14f08a8f3219.pdf';
     });
   }
-  
- 
+
   Future<void> _loadBytesPdf() async {
     // For demo, we'll download it first and then use bytes
     final response = await http.get(
@@ -94,43 +93,50 @@ class _MyAppState extends State<MyApp> {
           ],
         ],
       ),
-      floatingActionButton: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          FloatingActionButton(
-            heroTag: 'text',
-            onPressed: () async {
-              await _controller.addTextAnnotation(
-                "Programmatic Text",
-                100.0,
-                200.0,
-                0, // pageIndex
-                color: Colors.purple,
-              );
-            },
-            tooltip: 'Add Programmatic Text',
-            child: const Icon(Icons.text_fields),
-          ),
-          const SizedBox(height: 10),
-          FloatingActionButton(
-            heroTag: 'page',
-            onPressed: () async {
-              final total = await _controller.getTotalPages();
-              log("Total pages: $total");
-              if (total > 0) {
-                await _controller.jumpToPage(1);
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Jumped to last page of $total')),
-                  );
-                }
-              }
-            },
-            tooltip: 'Jump to Last Page',
-            child: const Icon(Icons.last_page),
-          ),
-        ],
-      ),
+
+
+
+      // floatingActionButton: Column(
+      //   mainAxisAlignment: MainAxisAlignment.end,
+      //   children: [
+      //     FloatingActionButton(
+      //       heroTag: 'text',
+      //       onPressed: () async {
+      //         await _controller.addTextAnnotation(
+      //           "Programmatic Text",
+      //           100.0,
+      //           200.0,
+      //           0, // pageIndex
+      //           color: Colors.purple,
+      //         );
+      //       },
+      //       tooltip: 'Add Programmatic Text',
+      //       child: const Icon(Icons.text_fields),
+      //     ),
+      //     const SizedBox(height: 10),
+      //     FloatingActionButton(
+      //       heroTag: 'page',
+      //       onPressed: () async {
+      //         final total = await _controller.getTotalPages();
+      //         log("Total pages: $total");
+      //         if (total > 0) {
+      //           await _controller.jumpToPage(1);
+      //           if (mounted) {
+      //             ScaffoldMessenger.of(context).showSnackBar(
+      //               SnackBar(content: Text('Jumped to last page of $total')),
+      //             );
+      //           }
+      //         }
+      //       },
+      //       tooltip: 'Jump to Last Page',
+      //       child: const Icon(Icons.last_page),
+      //     ),
+      //   ],
+      // ),
+   
+   
+   
+   
       body: _url == null && _bytes == null
           ? const Center(child: Text('Pick a source to load PDF'))
           : Column(
@@ -143,14 +149,14 @@ class _MyAppState extends State<MyApp> {
 
                           key: ValueKey(_url),
                           config: PdfViewerConfig(
-                            showTextButton: false,
+                            showTextButton: true,
                             drawColor: Colors.red,
                             allowFullScreen: false,
-                            showZoomButtons: false,
+                            showZoomButtons: true,
                             toolbarColor: Colors.white,
                             enablePageNumber: true,
                             language: PdfViewerLanguage.arabic,
-                       
+
                             onFullScreenInit: () {
                               log('full screen initialized');
                             },

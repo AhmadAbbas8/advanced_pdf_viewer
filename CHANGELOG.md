@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.0
+
+- **Interactive Selection**: Added circular drag handles for highlight and underline tools on both iOS and Android for a more native editing experience.
+- **Word Snapping**: Implemented intelligent word-level snapping for precision annotations, ensuring highlights and underlines align perfectly with text bounds.
+- **Sentence Selection**: Added support for double-tap/click gestures to quickly select and annotate entire sentences.
+- **Enhanced Text Annotations**: Improved text annotation positioning and accuracy; added support for `fontSize` and drag offsets (`deltaX`, `deltaY`) in the controller.
+- **RTL Accuracy**: Significantly improved handle positioning and selection logic for RTL (Arabic) text.
+
 ## 0.11.0
 
 - **Enhanced Search**: Significantly improved Arabic text search accuracy with advanced normalization, character form handling (ligatures, presentation forms), and sophisticated regex patterns.
