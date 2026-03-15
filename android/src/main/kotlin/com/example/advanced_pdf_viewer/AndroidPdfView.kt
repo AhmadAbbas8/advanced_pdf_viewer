@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PointF
@@ -235,6 +236,15 @@ class AndroidPdfView(
         })
 
         recyclerView.setOnTouchListener { _, event ->
+            if (currentTool != "none") {
+                // Allow pinch-zoom with two fingers while drawing/annotating, but don't steal single-finger draws.
+                if (event.pointerCount > 1) {
+                    scaleDetector.onTouchEvent(event)
+                    if (scaleDetector.isInProgress) return@setOnTouchListener true
+                }
+                return@setOnTouchListener false
+            }
+
             scaleDetector.onTouchEvent(event)
             if (scaleDetector.isInProgress) return@setOnTouchListener true
             if (currentScale > 1.0f) { panGestureDetector.onTouchEvent(event); return@setOnTouchListener true }
@@ -581,6 +591,71 @@ class AndroidPdfView(
         // ── Scale helper ─────────────────────────────────────────────────────
         private fun getScale(): Float = if (width == 0) 1f else pdfWidth.toFloat() / width.toFloat()
 
+        private fun getPdfToViewScale(): Float {
+            val d = drawable ?: return getScale().let { if (it == 0f) 1f else 1f / it }
+            val dw = d.intrinsicWidth.toFloat()
+            if (dw <= 0f || pdfWidth <= 0) return getScale().let { if (it == 0f) 1f else 1f / it }
+            val m = FloatArray(9); imageMatrix.getValues(m)
+            val bmpToView = m[Matrix.MSCALE_X]
+            val pdfToBmp = dw / pdfWidth.toFloat()
+            return bmpToView * pdfToBmp
+        }
+
+        private fun viewToPdf(localX: Float, localY: Float): PointF? {
+            val d = drawable ?: return null
+            val dw = d.intrinsicWidth.toFloat()
+            val dh = d.intrinsicHeight.toFloat()
+            if (dw <= 0f || dh <= 0f || pdfWidth <= 0 || pdfHeight <= 0) return null
+            val inv = Matrix()
+            if (!imageMatrix.invert(inv)) return null
+            val pts = floatArrayOf(localX, localY)
+            inv.mapPoints(pts)
+            val bmpX = pts[0].coerceIn(0f, dw)
+            val bmpY = pts[1].coerceIn(0f, dh)
+            val pdfX = bmpX * (pdfWidth / dw)
+            val pdfY = bmpY * (pdfHeight / dh)
+            return PointF(pdfX, pdfY)
+        }
+
+        private fun pdfToView(pdfX: Float, pdfY: Float): PointF? {
+            val d = drawable ?: return null
+            val dw = d.intrinsicWidth.toFloat()
+            val dh = d.intrinsicHeight.toFloat()
+            if (dw <= 0f || dh <= 0f || pdfWidth <= 0 || pdfHeight <= 0) return null
+            val bmpX = pdfX * (dw / pdfWidth.toFloat())
+            val bmpY = pdfY * (dh / pdfHeight.toFloat())
+            val pts = floatArrayOf(bmpX, bmpY)
+            imageMatrix.mapPoints(pts)
+            return PointF(pts[0], pts[1])
+        }
+
+        private fun pdfRectToView(rect: RectF): RectF? {
+            val p1 = pdfToView(rect.left, rect.top) ?: return null
+            val p2 = pdfToView(rect.right, rect.bottom) ?: return null
+            return RectF(
+                minOf(p1.x, p2.x),
+                minOf(p1.y, p2.y),
+                maxOf(p1.x, p2.x),
+                maxOf(p1.y, p2.y)
+            )
+        }
+
+        private fun mapEventToView(event: MotionEvent): PointF {
+            val rvLoc = IntArray(2); recyclerView.getLocationOnScreen(rvLoc)
+            val effectiveScale = if (currentScale == 0f) 1f else currentScale
+            val physX = event.rawX - rvLoc[0]
+            val physY = event.rawY - rvLoc[1]
+            val unscaledX = physX / effectiveScale
+            val unscaledY = physY / effectiveScale
+
+            val parentView = parent as? View
+            val parentTop = parentView?.top ?: 0
+            val parentLeft = parentView?.left ?: 0
+            val localX = unscaledX - parentLeft - left
+            val localY = unscaledY - parentTop - top
+            return PointF(localX, localY)
+        }
+
         // ─────────────────────────────────────────────────────────────────────
         // Gesture Detectors
         // ─────────────────────────────────────────────────────────────────────
@@ -589,8 +664,10 @@ class AndroidPdfView(
 
             // Single tap → annotate word at tap point
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                val scale = getScale()
-                val px = e.x * scale; val py = e.y * scale
+                val local = mapEventToView(e)
+                val pdf = viewToPdf(local.x, local.y)
+                val px = pdf?.x ?: 0f
+                val py = pdf?.y ?: 0f
 
                 return when (currentTool) {
                     "text" -> {
@@ -617,8 +694,10 @@ class AndroidPdfView(
             // Double tap → sentence selection
             override fun onDoubleTap(e: MotionEvent): Boolean {
                 if (currentTool != "highlight" && currentTool != "underline") return false
-                val scale = getScale()
-                val px = e.x * scale; val py = e.y * scale
+                val local = mapEventToView(e)
+                val pdf = viewToPdf(local.x, local.y)
+                val px = pdf?.x ?: 0f
+                val py = pdf?.y ?: 0f
                 triggerHaptic(HapticStyle.HEAVY)
                 snapSentenceAtPoint(px, py)
                 return true
@@ -627,8 +706,10 @@ class AndroidPdfView(
             // Long press → anchor word + enter drag mode
             override fun onLongPress(e: MotionEvent) {
                 if (currentTool != "highlight" && currentTool != "underline") return
-                val scale = getScale()
-                val px = e.x * scale; val py = e.y * scale
+                val local = mapEventToView(e)
+                val pdf = viewToPdf(local.x, local.y)
+                val px = pdf?.x ?: 0f
+                val py = pdf?.y ?: 0f
                 triggerHaptic(HapticStyle.MEDIUM)
                 startLongPressSelection(px, py)
             }
@@ -650,16 +731,18 @@ class AndroidPdfView(
             if (gestureDetector.onTouchEvent(event)) return true
             if (currentTool == "none") return super.onTouchEvent(event)
 
-            val scale = getScale()
-            val px = event.x * scale; val py = event.y * scale
+            val local = mapEventToView(event)
+            val pdf = viewToPdf(local.x, local.y)
+            val px = pdf?.x ?: 0f
+            val py = pdf?.y ?: 0f
 
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     when (currentTool) {
                         "draw" -> {
-                            currentDrawingPath = Path().apply { moveTo(event.x, event.y) }
+                            currentDrawingPath = Path().apply { moveTo(local.x, local.y) }
                             currentDrawingPoints.clear()
-                            currentDrawingPoints.add(PointF(px, py))
+                            if (pdf != null) currentDrawingPoints.add(PointF(px, py))
                         }
                         "highlight", "underline" -> {
                             selectionStartPdf.set(px, py)
@@ -674,8 +757,8 @@ class AndroidPdfView(
                 MotionEvent.ACTION_MOVE -> {
                     when (currentTool) {
                         "draw" -> {
-                            currentDrawingPath.lineTo(event.x, event.y)
-                            currentDrawingPoints.add(PointF(px, py))
+                            currentDrawingPath.lineTo(local.x, local.y)
+                            if (pdf != null) currentDrawingPoints.add(PointF(px, py))
                         }
                         "highlight", "underline" -> {
                             val dx = px - selectionStartPdf.x
@@ -743,12 +826,10 @@ class AndroidPdfView(
         // ─────────────────────────────────────────────────────────────────────
 
         private fun handleTouchForHandleDrag(event: MotionEvent) {
-            val scale = getScale()
-            // Convert screen touch to this view's coordinate space
-            // We need to map from the global screen position to view position
-            val location = IntArray(2); getLocationOnScreen(location)
-            val localX = (event.rawX - location[0]) * scale
-            val localY = (event.rawY - location[1]) * scale
+            val local = mapEventToView(event)
+            val pdf = viewToPdf(local.x, local.y)
+            val localX = pdf?.x ?: 0f
+            val localY = pdf?.y ?: 0f
 
             when (event.action) {
                 MotionEvent.ACTION_MOVE -> {
@@ -1052,7 +1133,6 @@ class AndroidPdfView(
             removeHandles()
 
             val color = if (currentTool == "highlight") highlightColor else underlineColor
-            val scale = getScale()
 
             val sH = SelectionHandleView(context, true)
             val eH = SelectionHandleView(context, false)
@@ -1074,14 +1154,19 @@ class AndroidPdfView(
         private fun positionHandlesForRects(rects: List<RectF>) {
             if (rects.isEmpty()) return
             val first = rects.first(); val last = rects.last()
-            val scale = getScale()
 
             // Start handle: top-left of first rect (RTL: top-right)
             val sH = startHandle ?: return; val eH = endHandle ?: return
-            sH.anchorX = if (isRTL) first.right / scale else first.left / scale
-            sH.anchorY = first.top / scale
-            eH.anchorX = if (isRTL) last.left / scale  else last.right / scale
-            eH.anchorY = last.bottom / scale
+            val sPdfX = if (isRTL) first.right else first.left
+            val sPdfY = first.top
+            val ePdfX = if (isRTL) last.left else last.right
+            val ePdfY = last.bottom
+            val sV = pdfToView(sPdfX, sPdfY)
+            val eV = pdfToView(ePdfX, ePdfY)
+            sH.anchorX = sV?.x ?: 0f
+            sH.anchorY = sV?.y ?: 0f
+            eH.anchorX = eV?.x ?: 0f
+            eH.anchorY = eV?.y ?: 0f
 
             // Store opposite anchor for handle dragging (in PDF coords)
             // this is used when a handle drag begins
@@ -1100,14 +1185,14 @@ class AndroidPdfView(
 
         // Detect which handle was touched (in view coordinates)
         private fun hitTestHandle(viewX: Float, viewY: Float): SelectionHandleView? {
-            val touch = 40f * resources.displayMetrics.density / getScale()  // hit area
+            val touch = 40f * resources.displayMetrics.density / getPdfToViewScale()  // hit area
             startHandle?.let { h ->
-                if (Math.abs(h.anchorX - viewX / getScale()) < touch &&
-                    Math.abs(h.anchorY - viewY / getScale()) < touch) return h
+                if (Math.abs(h.anchorX - viewX) < touch &&
+                    Math.abs(h.anchorY - viewY) < touch) return h
             }
             endHandle?.let { h ->
-                if (Math.abs(h.anchorX - viewX / getScale()) < touch &&
-                    Math.abs(h.anchorY - viewY / getScale()) < touch) return h
+                if (Math.abs(h.anchorX - viewX) < touch &&
+                    Math.abs(h.anchorY - viewY) < touch) return h
             }
             return null
         }
@@ -1152,15 +1237,15 @@ class AndroidPdfView(
 
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
-            val scale = getScale()
-            if (scale == 0f) return
-            val inv = 1f / scale
+            val viewScale = getPdfToViewScale()
+            if (viewScale == 0f) return
 
             // ── Search highlights ────────────────────────────────────────────
             for (i in searchResults.indices) {
                 val m = searchResults[i]; if (m.pageIndex != pageIndex) continue
                 val paint = if (i == currentSearchIndex) searchCurPaint else searchAllPaint
-                canvas.drawRect(m.rect.left * inv, m.rect.top * inv, m.rect.right * inv, m.rect.bottom * inv, paint)
+                val r = pdfRectToView(m.rect) ?: continue
+                canvas.drawRect(r, paint)
             }
 
             // ── Committed annotations ────────────────────────────────────────
@@ -1168,23 +1253,35 @@ class AndroidPdfView(
                 if (anno.pageIndex != pageIndex) continue
                 when (anno.type) {
                     "text" -> {
-                        val tp = Paint().apply { color = anno.color; textSize = anno.fontSize * inv; isFakeBoldText = true }
-                        canvas.drawText(anno.text ?: "", anno.x * inv, anno.y * inv, tp)
+                        val tp = Paint().apply {
+                            color = anno.color
+                            textSize = anno.fontSize * viewScale
+                            isFakeBoldText = true
+                        }
+                        val p = pdfToView(anno.x, anno.y) ?: continue
+                        canvas.drawText(anno.text ?: "", p.x, p.y, tp)
                     }
                     "highlight" -> {
                         val p = Paint().apply { color = anno.color; alpha = 100; style = Paint.Style.FILL }
-                        canvas.drawRect(anno.x * inv, anno.y * inv, (anno.x + anno.w) * inv, (anno.y + anno.h) * inv, p)
+                        val r = pdfRectToView(RectF(anno.x, anno.y, anno.x + anno.w, anno.y + anno.h)) ?: continue
+                        canvas.drawRect(r, p)
                     }
                     "underline" -> {
-                        val p = Paint().apply { color = anno.color; strokeWidth = 2f * inv; style = Paint.Style.STROKE }
-                        canvas.drawLine(anno.x * inv, (anno.y + anno.h) * inv, (anno.x + anno.w) * inv, (anno.y + anno.h) * inv, p)
+                        val p = Paint().apply { color = anno.color; strokeWidth = 2f * (1f / viewScale); style = Paint.Style.STROKE }
+                        val p1 = pdfToView(anno.x, anno.y + anno.h) ?: continue
+                        val p2 = pdfToView(anno.x + anno.w, anno.y + anno.h) ?: continue
+                        canvas.drawLine(p1.x, p1.y, p2.x, p2.y, p)
                     }
                     "draw" -> {
                         val points = anno.points ?: continue; if (points.size < 2) continue
-                        val p = Paint(drawPaint).apply { color = anno.color; strokeWidth = 2f * inv }
+                        val p = Paint(drawPaint).apply { color = anno.color; strokeWidth = 2f * (1f / viewScale) }
+                        val first = pdfToView(points[0].x, points[0].y) ?: continue
                         val path = Path().apply {
-                            moveTo(points[0].x * inv, points[0].y * inv)
-                            for (k in 1 until points.size) lineTo(points[k].x * inv, points[k].y * inv)
+                            moveTo(first.x, first.y)
+                            for (k in 1 until points.size) {
+                                val v = pdfToView(points[k].x, points[k].y) ?: continue
+                                lineTo(v.x, v.y)
+                            }
                         }
                         canvas.drawPath(path, p)
                     }
@@ -1199,17 +1296,18 @@ class AndroidPdfView(
                 val baseColor = if (currentTool == "highlight") highlightColor else underlineColor
                 previewFillPaint.color   = Color.argb((70 * previewAlpha).toInt(),  Color.red(baseColor), Color.green(baseColor), Color.blue(baseColor))
                 previewStrokePaint.color = Color.argb((160 * previewAlpha).toInt(), Color.red(baseColor), Color.green(baseColor), Color.blue(baseColor))
-                previewStrokePaint.strokeWidth = 2f * inv
+                previewStrokePaint.strokeWidth = 2f * (1f / viewScale)
                 for (r in liveSelectionRects) {
-                    val dr = RectF(r.left * inv, r.top * inv, r.right * inv, r.bottom * inv)
-                    canvas.drawRoundRect(dr, 3f * inv, 3f * inv, previewFillPaint)
-                    canvas.drawRoundRect(dr, 3f * inv, 3f * inv, previewStrokePaint)
+                    val dr = pdfRectToView(r) ?: continue
+                    val rad = 3f * (1f / viewScale)
+                    canvas.drawRoundRect(dr, rad, rad, previewFillPaint)
+                    canvas.drawRoundRect(dr, rad, rad, previewStrokePaint)
                 }
             }
 
             // ── Selection handles (drawn on canvas) ──────────────────────────
-            drawHandleOnCanvas(canvas, startHandle, inv)
-            drawHandleOnCanvas(canvas, endHandle,   inv)
+            drawHandleOnCanvas(canvas, startHandle, 1f / viewScale)
+            drawHandleOnCanvas(canvas, endHandle,   1f / viewScale)
         }
 
         private fun drawHandleOnCanvas(canvas: Canvas, handle: SelectionHandleView?, inv: Float) {
@@ -1250,15 +1348,17 @@ class AndroidPdfView(
         override fun dispatchTouchEvent(event: MotionEvent?): Boolean {
             event ?: return super.dispatchTouchEvent(null)
             if (event.action == MotionEvent.ACTION_DOWN && startHandle != null) {
-                val hit = hitTestHandle(event.x, event.y)
+                val local = mapEventToView(event)
+                val hit = hitTestHandle(local.x, local.y)
                 if (hit != null) {
                     activeHandle = hit
                     triggerHaptic(HapticStyle.LIGHT)
                     // Capture the opposite handle's anchor as the fixed end
                     val opp = if (hit.isStart) endHandle else startHandle
+                    val oppPdf = viewToPdf(opp?.anchorX ?: 0f, opp?.anchorY ?: 0f)
                     handleOppositeAnchorPdf.set(
-                        (opp?.anchorX ?: 0f) * getScale(),
-                        (opp?.anchorY ?: 0f) * getScale()
+                        oppPdf?.x ?: 0f,
+                        oppPdf?.y ?: 0f
                     )
                     return true
                 }

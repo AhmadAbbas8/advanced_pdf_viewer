@@ -155,6 +155,7 @@ class _MyAppState extends State<MyApp> {
                             showZoomButtons: true,
                             toolbarColor: Colors.white,
                             enablePageNumber: true,
+                            
                             language: PdfViewerLanguage.arabic,
 
                             onFullScreenInit: () {
@@ -163,6 +164,7 @@ class _MyAppState extends State<MyApp> {
                             showBookmarkButton: true,
                             enableBookmarks: true,
                             showBookmarksListButton: true,
+                            
                             // showToolbarSettings: false,
                             toolbarStyle: PdfToolbarStyle(
                               // activeColor: Colors.red,
