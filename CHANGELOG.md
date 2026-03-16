@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.13.0
+
+- **Zoom Persistence (Android)**: Dynamic synchronization of zoom and translation states during orientation changes and annotation starts, preventing unintended resets.
+- **Pinch-Zoom during Annotation**: Added support for multi-finger pinch-zoom gestures while drawing or highlighting on Android.
+- **Matrix-Based Mapping**: Rearchitected coordinate mapping on Android using `Matrix` for sub-pixel precision in drawing, highlights, and selection handles.
+- **Stability Guards**: Implemented "Zero Dimension" guards and layout listeners to maintain stable PDF positioning during complex UI transitions.
+- **Optimized Refreshing**: Improved redraw performance by refreshing only the specific page items being modified.
+
 ## 0.12.0
 
 - **Interactive Selection**: Added circular drag handles for highlight and underline tools on both iOS and Android for a more native editing experience.

@@ -70,6 +70,7 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
+    // log("zoom is ${_controller.setZoom(scale)}");
     return Scaffold(
       appBar: AppBar(
         title: const Text('Advanced PDF Viewer'),

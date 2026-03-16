@@ -30,6 +30,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ImageView
 import android.widget.TextView
+import android.util.Log
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import io.flutter.plugin.common.BinaryMessenger
@@ -40,6 +41,7 @@ import java.io.File
 import java.util.Stack
 import java.text.Bidi
 import java.util.concurrent.Executors
+import kotlin.math.abs
 
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
@@ -58,6 +60,9 @@ class AndroidPdfView(
     private val creationParams: Map<String, Any>?,
     private val messenger: BinaryMessenger
 ) : PlatformView, MethodChannel.MethodCallHandler {
+    companion object {
+        private const val TAG = "AdvancedPdfView"
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Scrollable layout manager
@@ -180,6 +185,63 @@ class AndroidPdfView(
     private var currentScale: Float = 1.0f
     private var translateX:   Float = 0f
     private var translateY:   Float = 0f
+    private var forcedZoomOnDrawStart: Boolean = false
+    private var isDrawingGesture: Boolean = false
+    private var drawStartScale: Float = 1.0f
+    private var drawStartTranslateX: Float = 0f
+    private var drawStartTranslateY: Float = 0f
+    private var drawZoomGuardUntil: Long = 0L
+    private var lastUserScale: Float = 1.0f
+    private var lastUserTranslateX: Float = 0f
+    private var lastUserTranslateY: Float = 0f
+    private var hasUserZoomed: Boolean = false
+
+    private fun rememberUserTransform() {
+        lastUserScale = currentScale
+        lastUserTranslateX = translateX
+        lastUserTranslateY = translateY
+        hasUserZoomed = true
+        Log.d(TAG, "remember user zoom: scale=$lastUserScale tx=$lastUserTranslateX ty=$lastUserTranslateY")
+    }
+
+    private fun lockZoomForDraw() {
+        syncTransformFromView()
+        Log.d(TAG, "lock draw: cur=$currentScale last=$lastUserScale hasUser=$hasUserZoomed")
+        if (hasUserZoomed && currentScale == 1.0f && lastUserScale > 1.0f) {
+            currentScale = lastUserScale
+            translateX = lastUserTranslateX
+            translateY = lastUserTranslateY
+            updateZoom()
+        }
+        drawStartScale = currentScale
+        drawStartTranslateX = translateX
+        drawStartTranslateY = translateY
+        isDrawingGesture = true
+        drawZoomGuardUntil = 0L
+    }
+
+    private fun enforceDrawZoomLock() {
+        val sx = recyclerView.scaleX
+        if (drawStartScale > 1f && sx + 0.01f < drawStartScale) {
+            currentScale = drawStartScale
+            translateX = drawStartTranslateX
+            translateY = drawStartTranslateY
+            updateZoom()
+        }
+    }
+
+    private fun scheduleZoomRestore() {
+        if (drawStartScale <= 1f) return
+        val delays = longArrayOf(0L, 16L, 32L, 64L)
+        for (d in delays) {
+            recyclerView.postDelayed({
+                currentScale = drawStartScale
+                translateX = drawStartTranslateX
+                translateY = drawStartTranslateY
+                updateZoom()
+            }, d)
+        }
+    }
     private val minScale:     Float = 1.0f
     private val maxScale:     Float = 5.0f
 
@@ -188,20 +250,31 @@ class AndroidPdfView(
     // ─────────────────────────────────────────────────────────────────────────
 
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+            if (currentTool != "none") return false
+            return super.onScaleBegin(detector)
+        }
+
         override fun onScale(detector: ScaleGestureDetector): Boolean {
+            if (currentTool != "none") return false
             val prev = currentScale
             currentScale = (currentScale * detector.scaleFactor).coerceIn(minScale, maxScale)
             val fx = detector.focusX; val fy = detector.focusY
             translateX -= (fx / prev - fx / currentScale) * currentScale
             translateY -= (fy / prev - fy / currentScale) * currentScale
-            updateZoom(); return true
+            updateZoom()
+            rememberUserTransform()
+            return true
         }
     })
 
     private val panGestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onScroll(e1: MotionEvent?, e2: MotionEvent, dX: Float, dY: Float): Boolean {
             if (currentScale > 1.0f && currentTool == "none") {
-                translateX -= dX; translateY -= dY; updateZoom(); return true
+                translateX -= dX; translateY -= dY
+                updateZoom()
+                rememberUserTransform()
+                return true
             }
             return false
         }
@@ -224,6 +297,18 @@ class AndroidPdfView(
         recyclerView.adapter       = PdfAdapter()
         recyclerView.setItemViewCacheSize(3)
         recyclerView.setHasFixedSize(true)
+
+        recyclerView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            if (currentTool != "none" && !scaleDetector.isInProgress) {
+                val sx = recyclerView.scaleX
+                val tx = recyclerView.translationX
+                val ty = recyclerView.translationY
+                Log.d(TAG, "layout change: sx=$sx tx=$tx ty=$ty cur=$currentScale")
+                if (abs(sx - currentScale) > 0.01f || abs(tx - translateX) > 0.5f || abs(ty - translateY) > 0.5f) {
+                    updateZoom()
+                }
+            }
+        }
 
         recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
@@ -372,6 +457,11 @@ class AndroidPdfView(
             "setDrawingMode" -> {
                 currentTool = call.argument<String>("tool") ?: "none"
                 layoutManager.scrollable = currentTool == "none"
+                forcedZoomOnDrawStart = false
+                if (currentTool != "none") {
+                    // Preserve any existing zoom that the view is currently showing.
+                    syncTransformFromView()
+                }
                 result.success(null)
             }
             "setScrollLocked" -> { layoutManager.scrollable = !(call.argument<Boolean>("locked") ?: false); result.success(null) }
@@ -470,11 +560,14 @@ class AndroidPdfView(
                 call.argument<Boolean>("enablePageNumber")?.let { enablePageNumber = it; refreshAllViews() }
                 result.success(null)
             }
-            "zoomIn"  -> { currentScale = (currentScale + 0.5f).coerceAtMost(maxScale); updateZoom(); result.success(null) }
-            "zoomOut" -> { currentScale = (currentScale - 0.5f).coerceAtLeast(minScale); if (currentScale == 1f) { translateX = 0f; translateY = 0f }; updateZoom(); result.success(null) }
+            "zoomIn"  -> { currentScale = (currentScale + 0.5f).coerceAtMost(maxScale); updateZoom(); rememberUserTransform(); result.success(null) }
+            "zoomOut" -> { currentScale = (currentScale - 0.5f).coerceAtLeast(minScale); if (currentScale == 1f) { translateX = 0f; translateY = 0f }; updateZoom(); rememberUserTransform(); result.success(null) }
             "setZoom" -> {
                 currentScale = (getDoubleArg(call, "scale")?.toFloat() ?: 1f).coerceIn(minScale, maxScale)
-                if (currentScale == 1f) { translateX = 0f; translateY = 0f }; updateZoom(); result.success(null)
+                if (currentScale == 1f) { translateX = 0f; translateY = 0f }
+                updateZoom()
+                rememberUserTransform()
+                result.success(null)
             }
             "getCurrentPage"     -> result.success(currentPage)
             "searchText"         -> { searchText(call.argument<String>("query") ?: ""); result.success(null) }
@@ -490,6 +583,14 @@ class AndroidPdfView(
     // ─────────────────────────────────────────────────────────────────────────
 
     private fun updateZoom() {
+        if (currentTool != "none" && drawZoomGuardUntil > 0L) {
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now < drawZoomGuardUntil && currentScale < drawStartScale) {
+                currentScale = drawStartScale
+                translateX = drawStartTranslateX
+                translateY = drawStartTranslateY
+            }
+        }
         if (currentScale > 1f) {
             translateX = translateX.coerceIn(-(recyclerView.width  * currentScale - recyclerView.width),  0f)
             translateY = translateY.coerceIn(-(recyclerView.height * currentScale - recyclerView.height), 0f)
@@ -499,7 +600,31 @@ class AndroidPdfView(
         recyclerView.pivotX = 0f; recyclerView.pivotY = 0f
     }
 
-    private fun addAnnotation(anno: Annotation) { undoStack.push(anno); redoStack.clear(); refreshAllViews() }
+    private fun syncTransformFromView() {
+        val sx = recyclerView.scaleX
+        val sy = recyclerView.scaleY
+        if (sx > 0f && sy > 0f) {
+            currentScale = (sx + sy) / 2f
+        }
+        translateX = recyclerView.translationX
+        translateY = recyclerView.translationY
+    }
+
+    private fun addAnnotation(anno: Annotation) {
+        undoStack.push(anno)
+        redoStack.clear()
+        refreshPage(anno.pageIndex)
+    }
+
+    private fun refreshPage(pageIndex: Int) {
+        val view = (recyclerView.layoutManager as? LinearLayoutManager)?.findViewByPosition(pageIndex)
+        if (view is ViewGroup && view.childCount > 0) {
+            (view.getChildAt(0) as? AnnotationImageView)?.invalidate()
+        } else {
+            recyclerView.adapter?.notifyItemChanged(pageIndex)
+        }
+    }
+
     private fun refreshAllViews() { recyclerView.adapter?.notifyDataSetChanged() }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -740,6 +865,11 @@ class AndroidPdfView(
                 MotionEvent.ACTION_DOWN -> {
                     when (currentTool) {
                         "draw" -> {
+                            if (!forcedZoomOnDrawStart) {
+                                // Preserve any existing zoom on first draw without forcing a reset.
+                                forcedZoomOnDrawStart = true
+                            }
+                            lockZoomForDraw()
                             currentDrawingPath = Path().apply { moveTo(local.x, local.y) }
                             currentDrawingPoints.clear()
                             if (pdf != null) currentDrawingPoints.add(PointF(px, py))
@@ -757,6 +887,7 @@ class AndroidPdfView(
                 MotionEvent.ACTION_MOVE -> {
                     when (currentTool) {
                         "draw" -> {
+                            if (isDrawingGesture) enforceDrawZoomLock()
                             currentDrawingPath.lineTo(local.x, local.y)
                             if (pdf != null) currentDrawingPoints.add(PointF(px, py))
                         }
@@ -779,10 +910,18 @@ class AndroidPdfView(
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     when (currentTool) {
                         "draw" -> {
+                            isDrawingGesture = false
                             if (currentDrawingPoints.isNotEmpty()) {
                                 addAnnotation(Annotation(pageIndex, "draw", 0f, 0f, 0f, 0f, null, drawColor, ArrayList(currentDrawingPoints)))
                             }
                             currentDrawingPath = Path(); currentDrawingPoints.clear()
+                            // Restore zoom if the first draw triggered a scale reset on lift.
+                            val sx = recyclerView.scaleX
+                            Log.d(TAG, "draw up: sx=$sx cur=$currentScale start=$drawStartScale tx=$translateX ty=$translateY")
+                            if (sx + 0.01f < drawStartScale) {
+                                drawZoomGuardUntil = android.os.SystemClock.uptimeMillis() + 200L
+                                scheduleZoomRestore()
+                            }
                         }
                         "highlight", "underline" -> {
                             if (isDragging && liveSelectionRects.isNotEmpty()) {
