@@ -74,6 +74,7 @@ class PdfLocalizations {
       'customColor': 'Custom Color',
       'deleteText': 'Delete Text',
       'textSize': 'Text Size',
+      'strokeWidth': 'Thickness',
     },
     PdfViewerLanguage.arabic: {
       'bookmarks': 'الصفحات المحفوظه',
@@ -121,6 +122,7 @@ class PdfLocalizations {
       'customColor': 'لون مخصص',
       'deleteText': 'حذف النص',
       'textSize': 'حجم النص',
+      'strokeWidth': 'السُمك',
     },
   };
 
@@ -195,6 +197,7 @@ class PdfLocalizations {
   String get customColor => _getString('customColor');
   String get deleteText => _getString('deleteText');
   String get textSize => _getString('textSize');
+  String get strokeWidth => _getString('strokeWidth');
 
   /// Get localization from context or return default English
   static PdfLocalizations of(BuildContext context) {

@@ -18,10 +18,12 @@ class PdfToolbar extends StatefulWidget {
   final ValueChanged<PdfToolbarStyle>? onStyleChanged;
   final ValueChanged<PdfToolbarPosition>? onPositionChanged;
   final Color? drawColor;
+  final double? drawStrokeWidth;
   final Color? highlightColor;
   final Color? underlineColor;
   final Color? textColor;
   final ValueChanged<Color>? onDrawColorChanged;
+  final ValueChanged<double>? onDrawStrokeWidthChanged;
   final ValueChanged<Color>? onHighlightColorChanged;
   final ValueChanged<Color>? onUnderlineColorChanged;
   final ValueChanged<Color>? onTextColorChanged;
@@ -39,10 +41,12 @@ class PdfToolbar extends StatefulWidget {
     this.onStyleChanged,
     this.onPositionChanged,
     this.drawColor,
+    this.drawStrokeWidth,
     this.highlightColor,
     this.underlineColor,
     this.textColor,
     this.onDrawColorChanged,
+    this.onDrawStrokeWidthChanged,
     this.onHighlightColorChanged,
     this.onUnderlineColorChanged,
     this.onTextColorChanged,
@@ -426,6 +430,15 @@ class _PdfToolbarState extends State<PdfToolbar> {
         defaultColors: defaultColors,
         currentColor: currentColor,
         config: widget.config,
+        strokeWidth: tool == PdfAnnotationTool.draw
+            ? (widget.drawStrokeWidth ?? widget.config.drawStrokeWidth)
+            : null,
+        onStrokeWidthChanged: tool == PdfAnnotationTool.draw
+            ? (value) {
+                widget.onDrawStrokeWidthChanged?.call(value);
+                widget.controller?.updateConfig(drawStrokeWidth: value);
+              }
+            : null,
         onColorSelected: (color) {
           switch (tool) {
             case PdfAnnotationTool.draw:

@@ -180,6 +180,7 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
     private var undoStack:       [AnnotationReference] = []
     private var redoStack:       [AnnotationReference] = []
     private var drawColor:       UIColor = .red
+    private var drawStrokeWidth: CGFloat = 3.0
     private var highlightColor:  UIColor = UIColor.yellow.withAlphaComponent(0.5)
     private var underlineColor:  UIColor = .blue
     private var enablePageNumber: Bool   = false
@@ -350,6 +351,7 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
         case "updateConfig":
             if let args = call.arguments as? [String: Any] {
                 if let c = args["drawColor"]      as? Int  { drawColor      = UIColor(argb: c) }
+                if let w = args["drawStrokeWidth"] as? Double { drawStrokeWidth = CGFloat(w) }
                 if let c = args["highlightColor"] as? Int  { highlightColor = UIColor(argb: c); updateHandleColors() }
                 if let c = args["underlineColor"] as? Int  { underlineColor = UIColor(argb: c); updateHandleColors() }
                 if let v = args["enablePageNumber"] as? Bool { enablePageNumber = v; updatePageNumbersState() }
@@ -643,7 +645,7 @@ class IOSPdfView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
         case .began:
             currentPath = UIBezierPath(); currentPath?.move(to: pt)
             let ann = PDFAnnotation(bounds: pg.bounds(for: .mediaBox), forType: .ink, withProperties: nil)
-            ann.color = drawColor; ann.border = PDFBorder(); ann.border?.lineWidth = 3
+            ann.color = drawColor; ann.border = PDFBorder(); ann.border?.lineWidth = drawStrokeWidth
             currentAnnotation = ann; pg.addAnnotation(ann)
         case .changed:
             currentPath?.addLine(to: pt)

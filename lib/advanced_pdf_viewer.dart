@@ -82,6 +82,7 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
   late PdfToolbarPosition _toolbarPosition;
   late PdfToolbarStyle _toolbarStyle;
   late Color _drawColor;
+  late double _drawStrokeWidth;
   late Color _highlightColor;
   late Color _underlineColor;
   late Color _textColor;
@@ -101,6 +102,7 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
     _toolbarPosition = widget.config.toolbarPosition;
     _toolbarStyle = widget.config.toolbarStyle;
     _drawColor = widget.config.drawColor;
+    _drawStrokeWidth = widget.config.drawStrokeWidth;
     _highlightColor = widget.config.highlightColor;
     _underlineColor = widget.config.underlineColor;
     _textColor = widget.config.textColor;
@@ -142,6 +144,7 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
     if (widget.config != oldWidget.config) {
       widget.controller?.updateConfig(
         drawColor: widget.config.drawColor,
+        drawStrokeWidth: widget.config.drawStrokeWidth,
         highlightColor: widget.config.highlightColor,
         underlineColor: widget.config.underlineColor,
         enablePageNumber: widget.config.enablePageNumber,
@@ -150,6 +153,7 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
         _toolbarPosition = widget.config.toolbarPosition;
         _toolbarStyle = widget.config.toolbarStyle;
         _drawColor = widget.config.drawColor;
+        _drawStrokeWidth = widget.config.drawStrokeWidth;
         _highlightColor = widget.config.highlightColor;
         _underlineColor = widget.config.underlineColor;
         _textColor = widget.config.textColor;
@@ -540,11 +544,14 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
                   onPositionChanged: (pos) =>
                       setState(() => _toolbarPosition = pos),
                   drawColor: _drawColor,
+                  drawStrokeWidth: _drawStrokeWidth,
                   highlightColor: _highlightColor,
                   underlineColor: _underlineColor,
                   textColor: _textColor,
                   onDrawColorChanged: (color) =>
                       setState(() => _drawColor = color),
+                  onDrawStrokeWidthChanged: (value) =>
+                      setState(() => _drawStrokeWidth = value),
                   onHighlightColorChanged: (color) =>
                       setState(() => _highlightColor = color),
                   onUnderlineColorChanged: (color) =>
@@ -610,6 +617,7 @@ class _AdvancedPdfViewerState extends State<AdvancedPdfViewer> {
     // Set initial colors from config
     widget.controller?.updateConfig(
       drawColor: widget.config.drawColor,
+      drawStrokeWidth: widget.config.drawStrokeWidth,
       highlightColor: widget.config.highlightColor,
       underlineColor: widget.config.underlineColor,
       enablePageNumber: widget.config.enablePageNumber,

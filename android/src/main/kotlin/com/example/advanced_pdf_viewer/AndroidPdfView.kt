@@ -168,6 +168,7 @@ class AndroidPdfView(
     private val mainHandler         = Handler(Looper.getMainLooper())
 
     private var drawColor:       Int     = Color.RED
+    private var drawStrokeWidth: Float   = 3f
     private var highlightColor:  Int     = Color.YELLOW
     private var underlineColor:  Int     = Color.BLUE
     private var enablePageNumber: Boolean = false
@@ -555,6 +556,7 @@ class AndroidPdfView(
             "getTotalPages" -> result.success(pdfRenderer?.pageCount ?: 0)
             "updateConfig" -> {
                 getIntArg(call, "drawColor")?.let      { drawColor      = it }
+                getDoubleArg(call, "drawStrokeWidth")?.let { drawStrokeWidth = it.toFloat(); refreshAllViews() }
                 getIntArg(call, "highlightColor")?.let { highlightColor = it }
                 getIntArg(call, "underlineColor")?.let { underlineColor = it }
                 call.argument<Boolean>("enablePageNumber")?.let { enablePageNumber = it; refreshAllViews() }
@@ -912,7 +914,20 @@ class AndroidPdfView(
                         "draw" -> {
                             isDrawingGesture = false
                             if (currentDrawingPoints.isNotEmpty()) {
-                                addAnnotation(Annotation(pageIndex, "draw", 0f, 0f, 0f, 0f, null, drawColor, ArrayList(currentDrawingPoints)))
+                                addAnnotation(
+                                    Annotation(
+                                        pageIndex,
+                                        "draw",
+                                        0f,
+                                        0f,
+                                        0f,
+                                        0f,
+                                        null,
+                                        drawColor,
+                                        ArrayList(currentDrawingPoints),
+                                        strokeWidth = drawStrokeWidth
+                                    )
+                                )
                             }
                             currentDrawingPath = Path(); currentDrawingPoints.clear()
                             // Restore zoom if the first draw triggered a scale reset on lift.
@@ -1413,7 +1428,10 @@ class AndroidPdfView(
                     }
                     "draw" -> {
                         val points = anno.points ?: continue; if (points.size < 2) continue
-                        val p = Paint(drawPaint).apply { color = anno.color; strokeWidth = 2f * (1f / viewScale) }
+                        val p = Paint(drawPaint).apply {
+                            color = anno.color
+                            strokeWidth = anno.strokeWidth * viewScale
+                        }
                         val first = pdfToView(points[0].x, points[0].y) ?: continue
                         val path = Path().apply {
                             moveTo(first.x, first.y)
@@ -1428,7 +1446,10 @@ class AndroidPdfView(
             }
 
             // ── Active draw stroke ───────────────────────────────────────────
-            canvas.drawPath(currentDrawingPath, drawPaint.apply { color = drawColor; strokeWidth = 5f })
+            canvas.drawPath(
+                currentDrawingPath,
+                drawPaint.apply { color = drawColor; strokeWidth = drawStrokeWidth * viewScale }
+            )
 
             // ── Live selection preview ───────────────────────────────────────
             if (liveSelectionRects.isNotEmpty() && previewAlpha > 0f) {
@@ -1587,7 +1608,7 @@ class AndroidPdfView(
                                 val points = anno.points ?: continue
                                 if (points.size >= 2) {
                                     val cs = PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true, true)
-                                    setPdfBoxColor(cs, drawColor, false); cs.setLineWidth(2f)
+                                    setPdfBoxColor(cs, drawColor, false); cs.setLineWidth(anno.strokeWidth)
                                     cs.moveTo(points[0].x, pageHeight - points[0].y)
                                     for (k in 1 until points.size) cs.lineTo(points[k].x, pageHeight - points[k].y)
                                     cs.stroke(); cs.close()
@@ -1619,7 +1640,8 @@ class AndroidPdfView(
         val x: Float, val y: Float, val w: Float, val h: Float,
         val text: String? = null, val color: Int = Color.BLACK,
         val points: List<PointF>? = null,
-        val fontSize: Float = 14f
+        val fontSize: Float = 14f,
+        val strokeWidth: Float = 3f
     )
 
     class SearchMatch(val pageIndex: Int, val rect: RectF)

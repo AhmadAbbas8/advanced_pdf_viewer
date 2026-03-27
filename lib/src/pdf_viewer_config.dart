@@ -124,6 +124,8 @@ class PdfViewerConfig {
 
   /// Color for drawing annotations.
   final Color drawColor;
+  /// Stroke width for drawing annotations (in PDF points).
+  final double drawStrokeWidth;
 
   /// Color for highlights.
   final Color highlightColor;
@@ -199,6 +201,7 @@ class PdfViewerConfig {
       vertical: 6,
     ),
     this.drawColor = Colors.red,
+    this.drawStrokeWidth = 3.0,
     this.highlightColor = const Color(0x80FFFF00), // Semi-transparent yellow
     this.underlineColor = Colors.blue,
     this.textColor = Colors.black,
@@ -262,6 +265,7 @@ class PdfViewerConfig {
     Color? toolbarColor,
     EdgeInsetsGeometry? toolbarPadding,
     Color? drawColor,
+    double? drawStrokeWidth,
     Color? highlightColor,
     Color? underlineColor,
     Color? textColor,
@@ -296,6 +300,7 @@ class PdfViewerConfig {
       toolbarColor: toolbarColor ?? this.toolbarColor,
       toolbarPadding: toolbarPadding ?? this.toolbarPadding,
       drawColor: drawColor ?? this.drawColor,
+      drawStrokeWidth: drawStrokeWidth ?? this.drawStrokeWidth,
       highlightColor: highlightColor ?? this.highlightColor,
       underlineColor: underlineColor ?? this.underlineColor,
       textColor: textColor ?? this.textColor,

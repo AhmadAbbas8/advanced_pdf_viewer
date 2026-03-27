@@ -136,6 +136,7 @@ class AdvancedPdfViewerController {
   /// Updates the native configuration (e.g. colors) without changing the tool.
   Future<void> updateConfig({
     Color? drawColor,
+    double? drawStrokeWidth,
     Color? highlightColor,
     Color? underlineColor,
     Color? textColor,
@@ -143,6 +144,7 @@ class AdvancedPdfViewerController {
   }) async {
     await _channel?.invokeMethod('updateConfig', {
       'drawColor': drawColor?.toARGB32(),
+      'drawStrokeWidth': drawStrokeWidth,
       'highlightColor': highlightColor?.toARGB32(),
       'underlineColor': underlineColor?.toARGB32(),
       'textColor': textColor?.toARGB32(),

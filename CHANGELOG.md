@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.1
+
+- **Draw Thickness Control**: Added adjustable stroke thickness with a live preview inside the color selection bottom sheet.
+- **Android Draw Consistency**: Fixed Android drawing stroke thickness shrinking after lifting the finger; saved strokes now preserve chosen thickness.
+- **Bottom Sheet Overflow Fix**: Made the color selection bottom sheet scrollable on small-height devices to prevent overflow.
+
 ## 0.13.0
 
 - **Zoom Persistence (Android)**: Dynamic synchronization of zoom and translation states during orientation changes and annotation starts, preventing unintended resets.
